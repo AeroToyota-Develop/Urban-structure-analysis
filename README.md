@@ -23,7 +23,7 @@
 
 #### ② 評価指標算出機能
 - 3D都市モデルの建築物モデルやその他の収集データを取り込み、所定の評価指標を算出します。
-- 3D都市モデルの建築物モデルは既存プラグインPLATEAU_QGIS_Pluginを活用して取り込みます。
+- 3D都市モデルの建築物モデルはPLATEAU GIS Converterを活用してGeoPackage形式に変換し取り込みます。
 
 #### ③ 可視化機能
 - 取り込まれたオープンデータや算出した評価指標を可視化します。
@@ -34,22 +34,24 @@
 
 ## 5. 利用技術
 
-| 種別        | 名称                                                     | バージョン   | 内容                                   |
-| --------- | ------------------------------------------------------ | ------- | ------------------------------------ |
-| ミドルウェア    | [QGIS](https://qgis.org/)                              | 3.36    | 地理空間情報の表示・編集・分析が可能な地理情報システム（GIS）     |
-|           | [PLATEAU QGIS Plugin](https://github.com/MIERUNE/plateau-qgis-plugin) | -       | PLATEAUデータ（CityGML形式）をQGISに取り込むプラグイン |
-|           | [Links Veda](https://www.mlit.go.jp/links/)               | -       | 非構造データを構造データとして再構築するソリューション          |
-| プログラミング言語 | [Python](https://www.python.org/)                      | 3.12 以降 | 汎用プログラミング言語（インプットデータの呼び出し・可視化処理に使用）  |
-| ライブラリ     | [PyQGIS](https://qgis.org/pyqgis)                      | -       | QGISの機能をPythonプログラムから操作可能なAPI        |
+| 種別 | 名称 | バージョン | 内容 |
+| --- | --- | --- | --- |
+| ソフトウェア | [QGIS](https://qgis.org/) | 3.40 | 地理空間情報の表示・編集・分析が可能な地理情報システム（GIS） |
+|  | [Python](https://www.python.org/) | 3.12 | 汎用プログラミング言語（インプットデータの呼び出し・可視化処理に使用） |
+|  | [PLATEAU GIS Converter](https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter) | 0.1.2 | PLATEAUのCityGML形式ファイルをGeoPackage形式に変換するソフトウェア |
+| ライブラリ | [PyQGIS](https://qgis.org/pyqgis) | QGIS 3.44対応 | QGISの機能をPythonプログラムから操作可能なAPI |
+|  | [Matplotlib](https://matplotlib.org/) | 3.10.8 | Pythonで静的・動的なグラフを作成する基本可視化ライブラリ |
+|  | [Seaborn](https://seaborn.pydata.org/) | 0.13.2 | Matplotlib基盤で統計グラフを描画する高レベル可視化ライブラリ |
+|  | [Bokeh](https://bokeh.org/) | 3.6.3 | Webブラウザで操作可能なインタラクティブ可視化ライブラリ |
 
 ## 6. 動作環境 <!-- 動作環境についての仕様を記載ください。 -->
 | 項目 | 最小動作環境 | 推奨動作環境 |
 |------|-------------|-------------|
-| OS | Microsoft Windows 10 または 11 | 同左 |
-| CPU | Intel Core i3以上 | 同左 |
-| メモリ | 8GB以上 | 同左 |
+| OS | Windows 10 Pro 64ビット以上 | 同左 |
+| CPU | Intel Core i5以上 | 同左 |
+| メモリ | 16GB以上 | 同左 |
 | ディスプレイ解像度 | 1024×768以上 | 同左 |
-| ネットワーク | 【3D都市モデルデータ読み込み】 各種プラグインをインストールできる環境が必要<br>【可視化】 オープンストリートマップを表示できる環境が必要 https://www.openstreetmap.org/#map | 同左 |
+| ネットワーク | 【3D都市モデルデータ読み込み】 PLATEAU GIS Converterをダウンロードできる環境が必要<br>【可視化】 オープンストリートマップを表示できる環境が必要 https://www.openstreetmap.org/#map | 同左 |
 
 ## 7. 本リポジトリのフォルダ構成 <!-- 本GitHub上のソースファイルの構成を記載ください。 -->
 | フォルダ名 |　詳細 |
