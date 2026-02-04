@@ -1,0 +1,7 @@
+/* Custom styles for Urban-structure-analysis documentation */
+
+/* テーブルの全セルで改行させない（横スクロールで対応） */
+table th,
+table td {
+  white-space: nowrap;
+}

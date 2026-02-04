@@ -81,7 +81,7 @@
 
 <h1 id="1-本書について">1 本書について</h1>
 <p>本書では、都市構造評価ツール（以下「本ツール」という。）の利用環境構築手順について記載しています。本ツールの構成や仕様の詳細については以下も参考にしてください。</p>
-<p><a href="https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0030_ver01.pdf">技術検証レポート</a></p>
+<p><a href="%E3%81%93%E3%81%93%E3%81%AB%E6%8A%80%E8%A1%93%E6%A4%9C%E8%A8%BC%E3%83%AC%E3%83%9D%E3%83%BC%E3%83%88%E3%81%AE%E3%83%AA%E3%83%B3%E3%82%AF%E3%82%92%E8%A8%98%E8%BC%89">技術検証レポート（※更新予定）</a></p>
 <h1 id="2-動作環境">2 動作環境</h1>
 <p>本システムの動作環境は以下のとおりです。</p>
 <table>
@@ -154,13 +154,13 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <li><code>output</code> - 出力データを格納するフォルダ</li>
 <li><code>output_変更後</code> - 誘導区域変更後の出力データを格納するフォルダ</li>
 </ul>
-<!-- TODO: ここに画像を差し込み（input, output, output_変更後フォルダの構成） -->
+<p><img src="../resources/devMan/tutorial_006.png" alt=""></p>
 <h3 id="3-3-2-3d都市モデルデータの入手">3-3-2. 3D都市モデルデータの入手</h3>
 <p>3D都市モデル（CityGML）のデータを、下記URLからダウンロードします。</p>
 <p><a href="https://www.mlit.go.jp/plateau/open-data/">https://www.mlit.go.jp/plateau/open-data/</a></p>
 <p>G空間情報センターより「CityGML（v3）」または「CityGML（v4）」以降を選択しましょう。人口の多い地域は比較的データが多く、ダウンロードに時間がかかることがあります。また、ダウンロードしたファイルはzip圧縮された状態でも5GBを超えることがあり、解凍するとさらに大きくなります。ストレージの空き容量に注意してください。</p>
 <p>ダウンロードしたファイルは、解凍してください。</p>
-<!-- TODO: ここに画像を差し込み（PLATEAUオープンデータサイト、CityGML v4のダウンロードボタン） -->
+<p><img src="../resources/devMan/tutorial_007.png" alt=""></p>
 <h3 id="3-3-3-変換ソフトの入手とセットアップ">3-3-3. 変換ソフトの入手とセットアップ</h3>
 <p>「PLATEAU GIS Converter」は下記サイトよりインストーラーをダウンロードして起動し、セットアップを行います。</p>
 <p><a href="https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases">https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases</a></p>
@@ -168,18 +168,19 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <li>Windows版: <code>PLATEAU.GIS.Converter_X.X.X_x64-setup.exe</code></li>
 <li>macOS版: <code>PLATEAU.GIS.Converter_X.X.X_universal.dmg</code></li>
 </ul>
-<!-- TODO: ここに画像を差し込み（GitHubリリースページ、Windows版とmacOS版の選択） -->
+<p><img src="../resources/devMan/tutorial_008.png" alt=""></p>
 <h3 id="3-3-4-データ形式の変換">3-3-4. データ形式の変換</h3>
 <p>「PLATEAU GIS Converter」を起動し、各種設定を行います。</p>
 <h4 id="入力設定">入力設定</h4>
 <p>変換元のCityGML形式ファイルを格納したフォルダ、または単一のCityGML形式ファイルを選択します。</p>
 <ol>
-<li>「フォルダ選択」ボタンが緑色になった状態で下にある「選択」ボタンをクリックします</li>
+<li>「フォルダ選択」ボタンが緑色になった状態で下にある「選択」ボタンをクリックします
+<img src="../resources/devMan/tutorial_009.png" alt=""></li>
 <li>「フォルダの選択」ダイアログが表示されるので、ダウンロードを行った3D都市モデル（CityGML）の解凍を行ったデータの下記フォルダを選択し、「フォルダの選択」を押下します</li>
 </ol>
 <p>例）<code>C:\都市構造UC09\09201_utsunomiyashi_city_2023_citygml_2_op\udx\bldg</code></p>
 <p>※「bldg」フォルダを選択してください</p>
-<!-- TODO: ここに画像を差し込み（PLATEAU GIS Converter入力設定画面） -->
+<p><img src="../resources/devMan/tutorial_010.png" alt=""></p>
 <h4 id="設定">設定</h4>
 <p>以下の設定を行います。</p>
 <table>
@@ -204,12 +205,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 </tr>
 </tbody>
 </table>
-<!-- TODO: ここに画像を差し込み（PLATEAU GIS Converter設定画面） -->
 <h4 id="出力設定">出力設定</h4>
 <p>出力先のフォルダ名またはファイル名を選択します。3-3-1で作成した <code>input</code> フォルダ内の <code>01_都市モデル（建物）</code> フォルダを出力先に指定します。</p>
 <h4 id="変換実行">変換実行</h4>
 <p>設定が完了したら「変換」ボタンを押下すると、指定フォルダに「GeoPackage形式」へ変換された3D都市モデル（CityGML）データが作成されます。</p>
-<!-- TODO: ここに画像を差し込み（PLATEAU GIS Converter変換実行画面） -->
+<p><img src="../resources/devMan/tutorial_011.png" alt=""></p>
 <h1 id="4-準備物一覧">4 準備物一覧</h1>
 <p>アプリケーションを利用するために以下のデータを入手します。</p>
 <p>※データ名のXは年次やメッシュ番号により名称が異なります。</p>

@@ -115,6 +115,56 @@
     },
     {
       "type": "Resource",
+      "source_relative_path": "resources/devMan/tutorial_007.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/devMan/tutorial_007.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/devMan/tutorial_008.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/devMan/tutorial_008.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/devMan/tutorial_009.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/devMan/tutorial_009.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/devMan/tutorial_010.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/devMan/tutorial_010.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/devMan/tutorial_011.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/devMan/tutorial_011.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
       "source_relative_path": "resources/index1.png",
       "output": {
         "resource": {
@@ -319,6 +369,16 @@
       "output": {
         "resource": {
           "relative_path": "resources/userMan/tutorial_019.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "styles/main.css",
+      "output": {
+        "resource": {
+          "relative_path": "styles/main.css"
         }
       },
       "version": ""

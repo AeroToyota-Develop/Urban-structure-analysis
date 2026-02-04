@@ -4,7 +4,7 @@
 
 本書では、都市構造評価ツール（以下「本ツール」という。）の利用環境構築手順について記載しています。本ツールの構成や仕様の詳細については以下も参考にしてください。
 
-[技術検証レポート](https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0030_ver01.pdf)
+[技術検証レポート（※更新予定）](ここに技術検証レポートのリンクを記載)
 
 # 2 動作環境
 
@@ -62,7 +62,7 @@ PLATEAUが配布している3D都市モデルは、CityGML形式です。この�
 - `output` - 出力データを格納するフォルダ
 - `output_変更後` - 誘導区域変更後の出力データを格納するフォルダ
 
-<!-- TODO: ここに画像を差し込み（input, output, output_変更後フォルダの構成） -->
+![](../resources/devMan/tutorial_006.png)
 
 ### 3-3-2. 3D都市モデルデータの入手
 
@@ -74,7 +74,7 @@ G空間情報センターより「CityGML（v3）」または「CityGML（v4）�
 
 ダウンロードしたファイルは、解凍してください。
 
-<!-- TODO: ここに画像を差し込み（PLATEAUオープンデータサイト、CityGML v4のダウンロードボタン） -->
+![](../resources/devMan/tutorial_007.png)
 
 ### 3-3-3. 変換ソフトの入手とセットアップ
 
@@ -85,7 +85,7 @@ https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases
 - Windows版: `PLATEAU.GIS.Converter_X.X.X_x64-setup.exe`
 - macOS版: `PLATEAU.GIS.Converter_X.X.X_universal.dmg`
 
-<!-- TODO: ここに画像を差し込み（GitHubリリースページ、Windows版とmacOS版の選択） -->
+![](../resources/devMan/tutorial_008.png)
 
 ### 3-3-4. データ形式の変換
 
@@ -96,13 +96,14 @@ https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases
 変換元のCityGML形式ファイルを格納したフォルダ、または単一のCityGML形式ファイルを選択します。
 
 1. 「フォルダ選択」ボタンが緑色になった状態で下にある「選択」ボタンをクリックします
+![](../resources/devMan/tutorial_009.png)
 2. 「フォルダの選択」ダイアログが表示されるので、ダウンロードを行った3D都市モデル（CityGML）の解凍を行ったデータの下記フォルダを選択し、「フォルダの選択」を押下します
 
 例）`C:\都市構造UC09\09201_utsunomiyashi_city_2023_citygml_2_op\udx\bldg`
 
 ※「bldg」フォルダを選択してください
 
-<!-- TODO: ここに画像を差し込み（PLATEAU GIS Converter入力設定画面） -->
+![](../resources/devMan/tutorial_010.png)
 
 #### 設定
 
@@ -114,8 +115,6 @@ https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases
 | 座標参照系 | WGS 84（EPSG:4979）（楕円体高） |
 | 出力LODの選択 | 最小LOD |
 
-<!-- TODO: ここに画像を差し込み（PLATEAU GIS Converter設定画面） -->
-
 #### 出力設定
 
 出力先のフォルダ名またはファイル名を選択します。3-3-1で作成した `input` フォルダ内の `01_都市モデル（建物）` フォルダを出力先に指定します。
@@ -124,7 +123,7 @@ https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases
 
 設定が完了したら「変換」ボタンを押下すると、指定フォルダに「GeoPackage形式」へ変換された3D都市モデル（CityGML）データが作成されます。
 
-<!-- TODO: ここに画像を差し込み（PLATEAU GIS Converter変換実行画面） -->
+![](../resources/devMan/tutorial_011.png)
 
 
 # 4 準備物一覧
