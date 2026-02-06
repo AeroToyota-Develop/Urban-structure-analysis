@@ -24,14 +24,64 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
-from PyQt5.QtCore import QCoreApplication, QSize, Qt # pylint: disable=import-error, no-name-in-module
+from PyQt5.QtCore import QCoreApplication, QSize, Qt, QThread, pyqtSignal # pylint: disable=import-error, no-name-in-module
 from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, # pylint: disable=import-error, no-name-in-module
                              QHBoxLayout, QLabel, QLineEdit,
-                             QPushButton, QVBoxLayout, QMessageBox,
-                             QProgressDialog)
+                             QPushButton, QRadioButton, QVBoxLayout,
+                             QMessageBox, QProgressDialog)
+
+from qgis.core import QgsMessageLog, Qgis, QgsProject, QgsCoordinateReferenceSystem, QgsProcessingFeedback, QgsRasterLayer
 from ..algorithms.workers.metric_calculation_worker import (
     MetricCalculationWorker
 )
+
+
+class ProcessingWorker(QThread):
+    """プロセシング実行用ワーカースレッド"""
+    progress = pyqtSignal(float)
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+    canceled = pyqtSignal()
+
+    def __init__(self, algorithm_id, parameters):
+        super().__init__()
+        self.algorithm_id = algorithm_id
+        self.parameters = parameters
+        self.feedback = None
+
+    def run(self):
+        """プロセシングを実行"""
+        try:
+            from qgis import processing
+
+            # フィードバックオブジェクトを作成
+            self.feedback = QgsProcessingFeedback()
+            self.feedback.progressChanged.connect(self.progress.emit)
+
+            # プロセシング実行
+            result = processing.run(
+                self.algorithm_id,
+                self.parameters,
+                feedback=self.feedback
+            )
+
+            # キャンセルされていたらcanceledシグナルを発行
+            if self.feedback.isCanceled():
+                self.canceled.emit()
+            else:
+                self.finished.emit(result)
+        except Exception as e:
+            # キャンセルによる例外かチェック
+            if self.feedback and self.feedback.isCanceled():
+                self.canceled.emit()
+            else:
+                self.error.emit(str(e))
+
+    def cancel(self):
+        """処理をキャンセル"""
+        if self.feedback:
+            self.feedback.cancel()
+
 
 class MetricCalculation(QDialog):
     """
@@ -79,9 +129,16 @@ class MetricCalculation(QDialog):
         self.visualization_config_file = os.path.join(
             self.config_dir, 'VisualizationConfig.xml'
         )
+        self.visualization_config_custom_file = os.path.join(
+            self.config_dir, 'VisualizationConfigCustom.xml'
+        )
+        self.revised_area_config_file = os.path.join(
+            self.config_dir, 'RevisedAreaVisualizationConfig.xml'
+        )
 
         self.progress_dialog = None
         self.worker = None
+        self.processing_worker = None
 
         self.ensure_config_dir()
         self.initUI()
@@ -107,19 +164,27 @@ class MetricCalculation(QDialog):
         self.setWindowTitle(self.tr('Metric Calculation'))
         layout = QVBoxLayout()
 
+        layout.addWidget(QLabel(self.tr('Select Guidance Area Type')))
+        self.radio_btn_layout, self.before_btn, self.after_btn = self.createRadioButton()
+        layout.addLayout(self.radio_btn_layout)
+
         layout.addWidget(QLabel(self.tr('Input Data Folder')))
         self.input_folder = self.createBrowseRow()
         layout.addLayout(self.input_folder)
+
+        layout.addWidget(QLabel(self.tr('Input Guidance Area Data Folder')))
+        self.input_guidance_area_folder = self.createBrowseRow()
+        layout.addLayout(self.input_guidance_area_folder)
 
         layout.addWidget(QLabel(self.tr('Output Data Folder')))
         self.output_folder = self.createBrowseRow()
         layout.addLayout(self.output_folder)
 
-        layout.addWidget(QLabel(self.tr('Threshold for Bus (m)')))
+        layout.addWidget(QLabel(self.tr('Threshold for Bus (m) *Default value in "Machizukuri Health Check" is 300 m')))
         self.threshold_bus = QLineEdit()
         layout.addWidget(self.threshold_bus)
 
-        layout.addWidget(QLabel(self.tr('Threshold for Railway (m)')))
+        layout.addWidget(QLabel(self.tr('Threshold for Railway (m) *Default value in "Machizukuri Health Check" is 800 m')))
         self.threshold_railway = QLineEdit()
         layout.addWidget(self.threshold_railway)
 
@@ -138,7 +203,21 @@ class MetricCalculation(QDialog):
 
         self.setLayout(layout)
 
-        self.resize(700, 350)
+        # 変更前の場合のグレーアウト対象
+        self.before_disabled_layouts = [
+            self.input_guidance_area_folder
+        ]
+        # 変更後の場合のグレーアウト対象
+        self.after_disabled_layouts = [
+            self.input_folder,
+            self.threshold_bus,
+            self.threshold_railway,
+            self.threshold_shelter
+        ]
+
+        self.before_btn.setChecked(True)
+
+        self.resize(700, 500)
         self.setMinimumSize(300, 200)
 
         self.setWindowFlags(
@@ -152,6 +231,23 @@ class MetricCalculation(QDialog):
         for button in [ok_button, cancel_button]:
             button.setMinimumSize(button_size)
             button.setMaximumSize(button_size)
+
+    def createRadioButton(self):
+        """
+        ラジオボタンを作成する関数
+
+        :return: ラジオボタンのレイアウト、Beforeボタン、Afterボタン
+        :rtype: tuple[QHBoxLayout, QRadioButton, QRadioButton]
+        """
+        layout = QHBoxLayout()
+        before_btn = QRadioButton(self.tr('Before'))
+        before_btn.toggled.connect(self.onClicked)
+        layout.addWidget(before_btn)
+        after_btn = QRadioButton(self.tr('After'))
+        after_btn.toggled.connect(self.onClicked)
+        layout.addWidget(after_btn)
+        layout.addStretch()
+        return layout, before_btn, after_btn
 
     def createBrowseRow(self):
         """
@@ -167,6 +263,33 @@ class MetricCalculation(QDialog):
         browse_button.clicked.connect(lambda: self.browseFolder(line_edit))
         layout.addWidget(browse_button)
         return layout
+
+    def onClicked(self):
+        radio_btn = self.sender()
+
+        if radio_btn == self.before_btn:
+            # 現行の処理
+            self.layoutEnabled(self.before_disabled_layouts, False)
+            self.layoutEnabled(self.after_disabled_layouts, True)
+            # 変更前アウトプットフォルダパスを読み込み
+            self.loadOutputFolder()
+        elif radio_btn == self.after_btn:
+            # 誘導区域の処理
+            self.layoutEnabled(self.before_disabled_layouts, True)
+            self.layoutEnabled(self.after_disabled_layouts, False)
+            # 変更後アウトプットフォルダパスを読み込み
+            self.loadOutputFolder()
+
+    def layoutEnabled(self, layouts, enabled):
+        for layout in layouts:
+            if isinstance(layout, QHBoxLayout):
+                for i in range(layout.count()):
+                    widget = layout.itemAt(i).widget()
+                    if widget:
+                        widget.setEnabled(enabled)
+            elif isinstance(layout, QLineEdit):
+                if layout:
+                    layout.setEnabled(enabled)
 
     def browseFolder(self, line_edit):
         """
@@ -202,16 +325,55 @@ class MetricCalculation(QDialog):
         except ET.ParseError:
             print(self.tr("XML parsing error. Using default values."))
 
+    def loadOutputFolder(self):
+        """ラジオボタンの選択に応じて出力フォルダを読み込む"""
+        try:
+            tree = ET.parse(self.config_file)
+            root = tree.getroot()
+            if self.after_btn.isChecked():
+                if root.find('output_folder_revised') is not None:
+                    self.output_folder.itemAt(0).widget().setText(
+                        root.find('output_folder_revised').text
+                    )
+            else:
+                if root.find('output_folder') is not None:
+                    self.output_folder.itemAt(0).widget().setText(
+                        root.find('output_folder').text
+                    )
+        except (FileNotFoundError, ET.ParseError):
+            pass
+
     def saveSettings(self):
         """現在の設定を構成ファイルに保存する関数"""
+        # 既存の値を取得
+        old_output_folder = None
+        old_output_folder_revised = None
+        try:
+            old_tree = ET.parse(self.config_file)
+            old_root = old_tree.getroot()
+            if old_root.find('output_folder') is not None:
+                old_output_folder = old_root.find('output_folder').text
+            if old_root.find('output_folder_revised') is not None:
+                old_output_folder_revised = old_root.find('output_folder_revised').text
+        except (FileNotFoundError, ET.ParseError):
+            pass
+
         root = ET.Element('config')
         ET.SubElement(
             root, 'input_folder'
         ).text = self.input_folder.itemAt(0).widget().text()
 
-        ET.SubElement(
-            root, 'output_folder'
-        ).text = self.output_folder.itemAt(0).widget().text()
+        if self.after_btn.isChecked():
+            # 変更後の誘導区域選択医
+            if old_output_folder:
+                ET.SubElement(root, 'output_folder').text = old_output_folder
+            ET.SubElement(root, 'output_folder_revised').text = self.output_folder.itemAt(0).widget().text()
+        else:
+            # 変更前の誘導区域選択医
+            ET.SubElement(root, 'output_folder').text = self.output_folder.itemAt(0).widget().text()
+            if old_output_folder_revised:
+                ET.SubElement(root, 'output_folder_revised').text = old_output_folder_revised
+
         ET.SubElement(root, 'threshold_bus').text = self.threshold_bus.text()
         ET.SubElement(
             root, 'threshold_railway'
@@ -222,6 +384,26 @@ class MetricCalculation(QDialog):
 
         tree = ET.ElementTree(root)
         tree.write(self.config_file, encoding='utf-8', xml_declaration=True)
+
+    def add_osm_layer(self):
+        osm_url = "type=xyz&url=https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        layer_name = "OpenStreetMap"
+
+        existing_layer = None
+        for layer in QgsProject.instance().mapLayers().values():
+            if layer.name() == layer_name:
+                existing_layer = layer
+                break
+
+        if not existing_layer:
+            osm_layer = QgsRasterLayer(osm_url, layer_name, "wms")
+            if osm_layer.isValid():
+                pipe = osm_layer.pipe()
+                if pipe:
+                    huesaturation_filter = pipe.hueSaturationFilter()
+                    if huesaturation_filter:
+                        huesaturation_filter.setGrayscaleMode(2)
+                QgsProject.instance().addMapLayer(osm_layer)
 
     def accept(self):
         """ダイアログの受け入れが押されたときに呼び出され、設定を保存してプロセスを実行します"""
@@ -261,6 +443,9 @@ class MetricCalculation(QDialog):
 
     def run_process(self):
         """メトリック計算のプロセスを実行し、進行状況を表示します"""
+        # OSMレイヤを追加
+        self.add_osm_layer()
+
         # 入力/出力フォルダのパス
         input_folder_path = self.input_folder.itemAt(0).widget().text()
         output_folder_path = self.output_folder.itemAt(0).widget().text()
@@ -268,10 +453,75 @@ class MetricCalculation(QDialog):
         threshold_railway = self.threshold_railway.text()
         threshold_shelter = self.threshold_shelter.text()
 
-        # グラフのための構成パスの更新
-        self.update_xml_paths(
-            self.visualization_config_file, output_folder_path
-        )
+        # 変更前/変更後の判定
+        is_after_change = self.after_btn.isChecked()
+
+        # 変更後の誘導区域データフォルダパス（変更後の誘導区域選択時）
+        induction_area_folder = None
+        before_output_folder = None
+
+        # 変更後
+        if is_after_change:
+            induction_area_folder = self.input_guidance_area_folder.itemAt(0).widget().text()
+
+            # 変更前のアウトプットフォルダパスを設定ファイルから取得
+            try:
+                tree = ET.parse(self.config_file)
+                root = tree.getroot()
+                if root.find('output_folder') is not None:
+                    before_output_folder = root.find('output_folder').text
+            except (FileNotFoundError, ET.ParseError):
+                pass
+            
+            # before_output_folderが取得できた場合のみ更新
+            if before_output_folder:
+                # グラフのための構成パスの更新
+                self.update_xml_paths(
+                    self.visualization_config_file, before_output_folder
+                )
+
+                # カスタム設定ファイルも更新（存在する場合）
+                if os.path.exists(self.visualization_config_custom_file):
+                    self.update_xml_paths(
+                        self.visualization_config_custom_file, before_output_folder
+                    )
+
+            # 修正区域用の設定ファイルも更新（output_folder_revisedが設定されている場合）
+            try:
+                tree = ET.parse(self.config_file)
+                root = tree.getroot()
+                output_folder_revised_elem = root.find('output_folder_revised')
+                if output_folder_revised_elem is not None and output_folder_revised_elem.text:
+                    revised_folder_path = output_folder_revised_elem.text
+                    if os.path.exists(self.revised_area_config_file):
+                        self.update_xml_paths(
+                            self.revised_area_config_file, revised_folder_path
+                        )
+            except (FileNotFoundError, ET.ParseError):
+                pass
+        else:
+            # グラフのための構成パスの更新
+            self.update_xml_paths(
+                self.visualization_config_file, output_folder_path
+            )
+
+            # カスタム設定ファイルも更新（存在する場合）
+            if os.path.exists(self.visualization_config_custom_file):
+                self.update_xml_paths(
+                    self.visualization_config_custom_file, output_folder_path
+                )
+
+        # プロセシングアルゴリズムのパラメータを設定
+        parameters = {
+            'INPUT_FOLDER': input_folder_path,
+            'OUTPUT_FOLDER': output_folder_path,
+            'THRESHOLD_BUS': int(threshold_bus),
+            'THRESHOLD_RAILWAY': int(threshold_railway),
+            'THRESHOLD_SHELTER': int(threshold_shelter),
+            'IS_AFTER_CHANGE': is_after_change,
+            'INDUCTION_AREA_FOLDER': induction_area_folder,
+            'BEFORE_OUTPUT_FOLDER': before_output_folder
+        }
 
         # 進行状況ダイアログの作成
         self.progress_dialog = QProgressDialog(
@@ -279,29 +529,89 @@ class MetricCalculation(QDialog):
         )
         self.progress_dialog.setWindowTitle("進捗状況")
         self.progress_dialog.setWindowModality(Qt.WindowModal)
-        self.progress_dialog.setAutoClose(False)  # 自動的に閉じないように設定
-        self.progress_dialog.setAutoReset(False)  # 自動的にリセットしないように設定
-        self.progress_dialog.canceled.connect(self.cancel_process)  # 操作をキャンセルする
+        self.progress_dialog.setAutoClose(False)
+        self.progress_dialog.setAutoReset(False)
+        self.progress_dialog.canceled.connect(self.cancel_processing)
         self.progress_dialog.show()
 
-        # QThreadワーカーの作成
-        self.worker = MetricCalculationWorker(
-            input_folder_path, output_folder_path, threshold_bus,
-            threshold_railway, threshold_shelter
+        # ワーカースレッドでプロセシング実行
+        self.processing_worker = ProcessingWorker(
+            "plateau_statistics:metric_calculation",
+            parameters
         )
-        self.worker.progress.connect(self.update_progress)
-        self.worker.finished.connect(self.finish_process)
-        self.worker.error.connect(self.handle_error)
-        self.worker.start()
+        self.processing_worker.progress.connect(self.update_progress)
+        self.processing_worker.finished.connect(self.on_processing_finished)
+        self.processing_worker.error.connect(self.on_processing_error)
+        self.processing_worker.canceled.connect(self.on_processing_canceled)
+        self.processing_worker.start()
 
     def update_progress(self, value):
         """
         進捗バーを更新する関数
 
         :param value: 現在の進行状況の値
-        :type value: int
+        :type value: float
         """
-        self.progress_dialog.setValue(value)
+        if self.progress_dialog:
+            self.progress_dialog.setValue(int(value))
+
+    def on_processing_finished(self, result):
+        """
+        プロセシングが完了したときに呼び出される関数
+
+        :param result: プロセシングの結果
+        """
+        if self.progress_dialog:
+            self.progress_dialog.close()
+
+        # Geopackageレイヤをプロジェクトに追加
+        gpkg_manager = result.get('gpkg_manager')
+        if gpkg_manager:
+            gpkg_manager.add_layers_to_project()
+
+        QMessageBox.information(self, "完了", "評価指標算出が完了しました")
+        self.close()
+
+    def on_processing_error(self, error_message):
+        """
+        プロセシングでエラーが発生したときに呼び出される関数
+
+        :param error_message: エラーメッセージ
+        :type error_message: str
+        """
+        if self.progress_dialog:
+            self.progress_dialog.close()
+        QMessageBox.critical(self, "エラー", f"エラーが発生しました: {error_message}")
+
+    def on_processing_canceled(self):
+        """
+        プロセシングがキャンセルされたときに呼び出される関数
+        """
+        if self.progress_dialog:
+            self.progress_dialog.close()
+            self.progress_dialog = None
+        QMessageBox.information(self, "キャンセル", "評価指標算出処理がキャンセルされました。")
+        self.close()
+
+    def cancel_processing(self):
+        """プロセシングをキャンセルする関数"""
+        if self.processing_worker and self.progress_dialog:
+            # 進捗ダイアログのテキストを変更
+            self.progress_dialog.setLabelText("処理を停止しています...")
+            self.progress_dialog.setCancelButton(None)  # キャンセルボタンを削除
+
+            # インデターミネート（無限ループ）モードにする
+            self.progress_dialog.setRange(0, 0)
+
+            # 閉じるボタンを無効にする
+            self.progress_dialog.setWindowFlags(
+                self.progress_dialog.windowFlags() & ~Qt.WindowCloseButtonHint
+            )
+            # ウィンドウフラグを変更したら再表示が必要
+            self.progress_dialog.show()
+
+            # プロセシングをキャンセル
+            self.processing_worker.cancel()
 
     def finish_process(self, message):
         """
@@ -334,6 +644,27 @@ class MetricCalculation(QDialog):
         self.progress_dialog.show()
         self.worker.cancel()
 
+    def on_set_project_crs(self, crs_string):
+        """プロジェクトCRSを設定する"""
+        target_crs = QgsCoordinateReferenceSystem(crs_string)
+        if target_crs.isValid():
+            QgsProject.instance().setCrs(target_crs)
+            QgsMessageLog.logMessage(
+                f"Project CRS set to: {crs_string}",
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+        else:
+            QgsMessageLog.logMessage(
+                f"Invalid CRS: {crs_string}",
+                self.tr("Plugin"),
+                Qgis.Warning,
+            )
+
+    def tr(self, message):
+        """翻訳用のメソッド"""
+        return QCoreApplication.translate(self.__class__.__name__, message)
+
     @staticmethod
     def update_xml_paths(xml_file_path, input_folder_path):
         """
@@ -352,6 +683,14 @@ class MetricCalculation(QDialog):
             filename = os.path.basename(old_path)
             new_path = os.path.join(input_folder_path, filename)
             path_elem.text = new_path
+
+        # hline_path要素も更新
+        for hline_path_elem in root.findall(".//hline_path"):
+            old_path = hline_path_elem.text
+            if old_path:  # 空でない場合のみ更新
+                filename = os.path.basename(old_path)
+                new_path = os.path.join(input_folder_path, filename)
+                hline_path_elem.text = new_path
 
         tree.write(xml_file_path, encoding='utf-8', xml_declaration=True)
 

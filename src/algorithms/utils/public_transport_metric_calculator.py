@@ -22,12 +22,12 @@ from .gpkg_manager import GpkgManager
 
 class PublicTransportMetricCalculator:
     """公共交通関連評価指標算出"""
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         self.base_path = base_path
 
         self.check_canceled = check_canceled_callback
 
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -40,17 +40,9 @@ class PublicTransportMetricCalculator:
             buildings_layer = self.gpkg_manager.load_layer(
                 'buildings', None, withload_project=False
             )
-            # 都市計画区域
-            urbun_plannings_layer = self.gpkg_manager.load_layer(
-                'urbun_plannings', None, withload_project=False
-            )
-            # 用途地域
-            land_use_areas_layer = self.gpkg_manager.load_layer(
-                'land_use_areas', None, withload_project=False
-            )
-            # 誘導区域
-            induction_layer = self.gpkg_manager.load_layer(
-                'induction_areas', None, withload_project=False
+            # 行政区域
+            zones_layer = self.gpkg_manager.load_layer(
+                'zones', None, withload_project=False
             )
             # 鉄道カバー圏域
             railway_station_buffers_layer = self.gpkg_manager.load_layer(
@@ -60,53 +52,85 @@ class PublicTransportMetricCalculator:
             bus_stop_buffers_layer = self.gpkg_manager.load_layer(
                 'bus_stop_buffers', None, withload_project=False
             )
-            # 交通流動
-            traffics_layer = self.gpkg_manager.load_layer(
-                'traffics', None, withload_project=False
-            )
 
             if not buildings_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "buildings"))
-            if not induction_layer:
+            
+            if not zones_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
-                    .replace("%1", "induction_areas"))
+                    .replace("%1", "zones"))
+                    
             if not railway_station_buffers_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "railway_station_buffers"))
+                    
             if not bus_stop_buffers_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "bus_stop_buffers"))
-            if not traffics_layer:
-                raise Exception(self.tr("The %1 layer was not found.")
-                    .replace("%1", "traffics"))
 
-            centroid_layer = QgsVectorLayer(
-                "Point?crs=" + buildings_layer.crs().authid(),
-                "tmp_building_centroids",
-                "memory",
+            # is_target=1のzonesを取得してフィルタリング用のレイヤを作成
+            target_zones_layer = None
+            if zones_layer:
+                target_zones_layer = QgsVectorLayer(
+                    "Polygon?crs=" + zones_layer.crs().authid(),
+                    "target_zones",
+                    "memory",
+                )
+                target_zones_data = target_zones_layer.dataProvider()
+                target_zones_data.addAttributes(zones_layer.fields())
+                target_zones_layer.updateFields()
+                
+                target_zones_features = []
+                for zone_feature in zones_layer.getFeatures():
+                    if zone_feature["is_target"] == 1:
+                        target_zones_features.append(zone_feature)
+                
+                if target_zones_features:
+                    target_zones_data.addFeatures(target_zones_features)
+                    target_zones_layer.updateExtents()
+                else:
+                    target_zones_layer = None
+
+            # target_zones_layerがない場合は集計を行わない
+            if not target_zones_layer:
+                # 空の結果を返す
+                self.export(
+                    self.base_path + '\\IF105_公共交通関連評価指標ファイル.csv',
+                    []
+                )
+                return
+
+            # 建物の重心を計算
+            centroids_result = processing.run(
+                "native:centroids",
+                {
+                    'INPUT': buildings_layer,
+                    'ALL_PARTS': False,
+                    'OUTPUT': 'memory:'
+                }
             )
-            centroid_layer_data = centroid_layer.dataProvider()
+            centroids_all = centroids_result['OUTPUT']
 
-            # 元の建物レイヤから属性をコピー
-            centroid_layer_data.addAttributes(buildings_layer.fields())
-            centroid_layer.updateFields()
-
-            # 建物の重心を計算して一時レイヤに追加
-            centroid_features = []
-            for building_feature in buildings_layer.getFeatures():
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                centroid_geom = building_feature.geometry().centroid()
-                new_feature = QgsFeature()
-                new_feature.setGeometry(centroid_geom)
-                new_feature.setAttributes(
-                    building_feature.attributes()
-                )  # 元の属性をコピー
-                centroid_features.append(new_feature)
-
-            centroid_layer_data.addFeatures(centroid_features)
-            centroid_layer.updateExtents()
+            # target_zones内の重心のみを抽出
+            if target_zones_layer and target_zones_layer.featureCount() > 0:
+                joined_result = processing.run(
+                    "native:joinattributesbylocation",
+                    {
+                        'INPUT': centroids_all,
+                        'JOIN': target_zones_layer,
+                        'PREDICATE': [5],  # within
+                        'JOIN_FIELDS': [],  # フィールド結合は不要
+                        'METHOD': 0,
+                        'DISCARD_NONMATCHING': True,  # マッチしないものは除外
+                        'PREFIX': '',
+                        'OUTPUT': 'memory:'
+                    }
+                )
+                centroid_layer = joined_result['OUTPUT']
+            else:
+                # target_zonesがない場合は全重心を使用
+                centroid_layer = centroids_all
 
             # 空間インデックス作成
             processing.run(
@@ -148,794 +172,148 @@ class PublicTransportMetricCalculator:
                 centroid_layer, bus_stop_buffers_layer
             )
 
-            # 都市計画区域内の建物を取得
-            urban_planning_buildings = self.__extract(
-                centroid_layer, urbun_plannings_layer
-            )
-            urbun_plannings_layer = None
 
-            # 都市計画区域内、鉄道カバー圏の建物を取得
-            urban_planning_railway_buildings = self.__extract(
-                urban_planning_buildings, railway_station_buffers_layer
-            )
 
-            # 都市計画区域内、バスカバー圏の建物を取得
-            urban_planning_bus_buildings = self.__extract(
-                urban_planning_buildings, bus_stop_buffers_layer
-            )
-
-            # 居住誘導区域（type_id=31）を取得
-            residential_area_layer = QgsVectorLayer(
-                "Polygon?crs=" + induction_layer.crs().authid(),
-                "residential_area",
-                "memory",
-            )
-            residential_area_data = residential_area_layer.dataProvider()
-            residential_area_features = []
-            for induction_feature in induction_layer.getFeatures():
-                if induction_feature["type_id"] == 31:
-                    residential_area_features.append(induction_feature)
-
-            # 新しい一時レイヤに追加
-            residential_area_data.addFeatures(residential_area_features)
-            residential_area_layer.updateExtents()
-
-            # 居住誘導区域内の建物を取得
-            residential_buildings = self.__extract(
-                centroid_layer, residential_area_layer
-            )
-            residential_area_layer = None
-
-            # 居住誘導区域内、鉄道カバー圏の建物を取得
-            residential_railway_buildings = self.__extract(
-                residential_buildings, railway_station_buffers_layer
-            )
-
-            # 居住誘導区域内、バスカバー圏の建物を取得
-            residential_bus_buildings = self.__extract(
-                residential_buildings, bus_stop_buffers_layer
-            )
-
-            # 都市機能誘導区域（type_id=32）を取得
-            urban_area_layer = QgsVectorLayer(
-                "Polygon?crs=" + induction_layer.crs().authid(),
-                "urban_area",
-                "memory",
-            )
-            urban_area_data = urban_area_layer.dataProvider()
-            urban_area_features = []
-            for induction_feature in induction_layer.getFeatures():
-                if induction_feature["type_id"] == 32:
-                    urban_area_features.append(induction_feature)
-
-            # 新しい一時レイヤに追加
-            urban_area_data.addFeatures(urban_area_features)
-            urban_area_layer.updateExtents()
-
-            # 都市機能誘導区域内の建物を取得
-            if self.check_canceled():
-                return  # キャンセルチェック
-            urban_buildings = self.__extract(centroid_layer, urban_area_layer)
-            urban_area_layer = None
-
-            # 都市機能誘導区域内、鉄道カバー圏の建物を取得
-            if self.check_canceled():
-                return  # キャンセルチェック
-            urban_railway_buildings = self.__extract(
-                urban_buildings, railway_station_buffers_layer
-            )
-
-            # 都市機能誘導区域内、バスカバー圏の建物を取得
-            if self.check_canceled():
-                return  # キャンセルチェック
-            urban_bus_buildings = self.__extract(
-                urban_buildings, bus_stop_buffers_layer
-            )
-
-            # 用途地域内の建物を取得
-            if self.check_canceled():
-                return  # キャンセルチェック
-            land_use_buildings = self.__extract(
-                centroid_layer, land_use_areas_layer
-            )
-            land_use_areas_layer = None
-
-            # 用途地域内、鉄道カバー圏の建物を取得
-            if self.check_canceled():
-                return  # キャンセルチェック
-            land_use_railway_buildings = self.__extract(
-                land_use_buildings, railway_station_buffers_layer
-            )
-
-            # 用途地域内、バスカバー圏の建物を取得
-            if self.check_canceled():
-                return  # キャンセルチェック
-            land_use_bus_buildings = self.__extract(
-                land_use_buildings, bus_stop_buffers_layer
-            )
 
             for year in unique_years:
                 if self.check_canceled():
                     return  # キャンセルチェック
                 year_field = f"{year}_population"
 
-                # 総人口を集計
+                # 行政区域制約付きの総人口を集計
                 total_pop = self.__aggregate_sum(centroid_layer, year_field)
 
-                # 都市計画区域内の人口
-                total_area01_pop = self.__aggregate_sum(
-                    urban_planning_buildings, year_field
-                )
-
-                # 用途地域内の人口
-                total_area02_pop = self.__aggregate_sum(
-                    land_use_buildings, year_field
-                )
-
-                # 都市機能誘導区域内の人口
-                total_area03_pop = self.__aggregate_sum(
-                    urban_buildings, year_field
-                )
-
-                # 居住誘導区域内の人口
-                total_area04_pop = self.__aggregate_sum(
-                    residential_buildings, year_field
-                )
-
-                if self.check_canceled():
-                    return  # キャンセルチェック
                 # 鉄道カバー圏人口
-                # 市内の鉄道カバー圏人口
-                train_area00_pop = self.__aggregate_sum(
-                    railway_buildings, year_field
-                )
-                # 都市計画区域内の鉄道カバー圏人口
-                train_area01_pop = self.__aggregate_sum(
-                    urban_planning_railway_buildings, year_field
-                )
-                # 用途地域内の鉄道カバー圏人口
-                train_area02_pop = self.__aggregate_sum(
-                    land_use_railway_buildings, year_field
-                )
-                # 都市機能誘導区域内の鉄道カバー圏人口
-                train_area03_pop = self.__aggregate_sum(
-                    urban_railway_buildings, year_field
-                )
-                # 居住誘導区域内の鉄道カバー圏人口
-                train_area04_pop = self.__aggregate_sum(
-                    residential_railway_buildings, year_field
-                )
+                rail_pop_covered = self.__aggregate_sum(railway_buildings, year_field)
 
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                # バスカバー圏人口
-                # 市内のバスカバー圏人口
-                buss_area00_pop = self.__aggregate_sum(
-                    bus_buildings, year_field
-                )
-                # 都市計画区域内のバスカバー圏人口
-                buss_area01_pop = self.__aggregate_sum(
-                    urban_planning_bus_buildings, year_field
-                )
-                # 用途地域内のバスカバー圏人口
-                buss_area02_pop = self.__aggregate_sum(
-                    land_use_bus_buildings, year_field
-                )
-                # 都市機能誘導区域内のバスカバー圏人口
-                buss_area03_pop = self.__aggregate_sum(
-                    urban_bus_buildings, year_field
-                )
-                # 居住誘導区域内のバスカバー圏人口
-                buss_area04_pop = self.__aggregate_sum(
-                    residential_bus_buildings, year_field
-                )
+                # バスカバー圏人口  
+                bus_pop_covered = self.__aggregate_sum(bus_buildings, year_field)
 
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                # 公共交通カバー圏人口（鉄道 + バス）
-                # 市内の公共交通カバー圏人口
-                masstra_area00_pop = train_area00_pop + buss_area00_pop
-                # 都市計画区域内の公共交通カバー圏人口
-                masstra_area01_pop = train_area01_pop + buss_area01_pop
-                # 用途地域内の公共交通カバー圏人口
-                masstra_area02_pop = train_area02_pop + buss_area02_pop
-                # 都市機能誘導区域内の公共交通カバー圏人口
-                masstra_area03_pop = train_area03_pop + buss_area03_pop
-                # 居住誘導区域内の公共交通カバー圏人口
-                masstra_area04_pop = train_area04_pop + buss_area04_pop
+                # 公共交通カバー圏人口（鉄道またはバス）- ユニオン処理
+                # 鉄道とバスカバー圏をユニオンして重複を除去
+                railway_count = railway_buildings.featureCount()
+                bus_count = bus_buildings.featureCount()
 
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                # 人口割合の計算
-                # 市内の鉄道カバー圏人口割合
-                rate_train_area00_pop = (
-                    (train_area00_pop / total_pop) * 100
-                    if total_pop > 0
-                    else '―'
-                )
-                # 市内のバスカバー圏人口割合
-                rate_buss_area00_pop = (
-                    (buss_area00_pop / total_pop) * 100
-                    if total_pop > 0
-                    else '―'
-                )
-                # 市内の公共交通カバー圏人口割合
-                rate_masstra_area00_pop = (
-                    (masstra_area00_pop / total_pop) * 100
-                    if total_pop > 0
-                    else '―'
-                )
-
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                # 都市計画区域内の鉄道カバー圏人口割合
-                rate_train_area01_pop = (
-                    (train_area01_pop / total_area01_pop) * 100
-                    if total_area01_pop > 0
-                    else '―'
-                )
-                # 都市計画区域内のバスカバー圏人口割合
-                rate_buss_area01_pop = (
-                    (buss_area01_pop / total_area01_pop) * 100
-                    if total_area01_pop > 0
-                    else '―'
-                )
-                # 都市計画区域内の公共交通カバー圏人口割合
-                rate_masstra_area01_pop = (
-                    (masstra_area01_pop / total_area01_pop) * 100
-                    if total_area01_pop > 0
-                    else '―'
-                )
-
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                # 用途地域内の鉄道カバー圏人口割合
-                rate_train_area02_pop = (
-                    (train_area02_pop / total_area02_pop) * 100
-                    if total_area02_pop > 0
-                    else '―'
-                )
-                # 用途地域内のバスカバー圏人口割合
-                rate_buss_area02_pop = (
-                    (buss_area02_pop / total_area02_pop) * 100
-                    if total_area02_pop > 0
-                    else '―'
-                )
-                # 用途地域内の公共交通カバー圏人口割合
-                rate_masstra_area02_pop = (
-                    (masstra_area02_pop / total_area02_pop) * 100
-                    if total_area02_pop > 0
-                    else '―'
-                )
-
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                # 都市機能誘導区域内の鉄道カバー圏人口割合
-                rate_train_area03_pop = (
-                    (train_area03_pop / total_area03_pop) * 100
-                    if total_area03_pop > 0
-                    else '―'
-                )
-                # 都市機能誘導区域内のバスカバー圏人口割合
-                rate_buss_area03_pop = (
-                    (buss_area03_pop / total_area03_pop) * 100
-                    if total_area03_pop > 0
-                    else '―'
-                )
-                # 都市機能誘導区域内の公共交通カバー圏人口割合
-                rate_masstra_area03_pop = (
-                    (masstra_area03_pop / total_area03_pop) * 100
-                    if total_area03_pop > 0
-                    else '―'
-                )
-
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                # 居住誘導区域内の鉄道カバー圏人口割合
-                rate_train_area04_pop = (
-                    (train_area04_pop / total_area04_pop) * 100
-                    if total_area04_pop > 0
-                    else '―'
-                )
-                # 居住誘導区域内のバスカバー圏人口割合
-                rate_buss_area04_pop = (
-                    (buss_area04_pop / total_area04_pop) * 100
-                    if total_area04_pop > 0
-                    else '―'
-                )
-                # 居住誘導区域内の公共交通カバー圏人口割合
-                rate_masstra_area04_pop = (
-                    (masstra_area04_pop / total_area04_pop) * 100
-                    if total_area04_pop > 0
-                    else '―'
-                )
-
-                # 交通流動
-                condition = f"survey_year = {year}"
-                total = self.__aggregate_sum(
-                    traffics_layer, 'total_trip_count', condition
-                )
-                train = self.__aggregate_sum(
-                    traffics_layer, 'rail_total_trip_count', condition
-                )
-                bus = self.__aggregate_sum(
-                    traffics_layer, 'bus_total_trip_count', condition
-                )
-
-                if total > 0:
-                    # 公共交通分担率
-                    share_public_transportation = ((train + bus) / total) * 100
-                    # 公共交通分担率（鉄道）
-                    share_public_transportation_train = (train / total) * 100
-                    # 公共交通分担率（バス）
-                    share_public_transportation_bus = (bus / total) * 100
+                if railway_count > 0 and bus_count > 0:
+                    # 両方にフィーチャがある場合はユニオン
+                    union_result = processing.run(
+                        "native:union",
+                        {
+                            'INPUT': railway_buildings,
+                            'OVERLAY': bus_buildings,
+                            'OVERLAY_FIELDS_PREFIX': '',
+                            'OUTPUT': 'memory:'
+                        }
+                    )
+                    union_layer = union_result['OUTPUT']
+                elif railway_count > 0:
+                    # 鉄道のみ
+                    union_layer = railway_buildings
+                elif bus_count > 0:
+                    # バスのみ
+                    union_layer = bus_buildings
                 else:
-                    share_public_transportation = '―'
-                    share_public_transportation_train = '―'
-                    share_public_transportation_bus = '―'
+                    # 両方とも空
+                    union_layer = railway_buildings
+
+                # ユニオン結果から人口を集計
+                transit_pop_covered = self.__aggregate_sum(union_layer, year_field)
+
+
+                # 鉄道カバー率
+                rail_pop_coverage = (
+                    self.round_or_na(rail_pop_covered / total_pop, 3)
+                    if total_pop > 0
+                    else '―'
+                )
+
+                # バスカバー率
+                bus_pop_coverage = (
+                    self.round_or_na(bus_pop_covered / total_pop, 3)
+                    if total_pop > 0
+                    else '―'
+                )
+
+                # 交通共通カバー率（公共交通カバー率）
+                transit_pop_coverage = (
+                    self.round_or_na(transit_pop_covered / total_pop, 3)
+                    if total_pop > 0
+                    else '―'
+                )
 
                 # 前年度のデータがあれば、変化率を計算
                 if data_list:
                     previous_year_data = data_list[-1]
 
-                    # 都市計画区域内の鉄道カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_train_area01_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Train_Area01_Pop'],
-                        (int, float),
-                    ):
-                        rate_train_area01_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_train_area01_pop
-                                        - previous_year_data[
-                                            'Rate_Train_Area01_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_Train_Area01_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Train_Area01_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_train_area01_pop_change = '―'
 
-                    # 都市計画区域内のバスカバー圏人口割合の変化率
-                    if isinstance(
-                        rate_buss_area01_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Buss_Area01_Pop'], (
-                            int, float)
-                    ):
-                        rate_buss_area01_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_buss_area01_pop
-                                        - previous_year_data[
-                                            'Rate_Buss_Area01_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data['Rate_Buss_Area01_Pop']
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Buss_Area01_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_buss_area01_pop_change = '―'
+                    rail_pop_coverage_delta = (
+                        self.round_or_na(rail_pop_coverage - previous_year_data['rail_pop_coverage'], 2)
+                        if isinstance(previous_year_data['rail_pop_coverage'], (int, float))
+                        and isinstance(rail_pop_coverage, (int, float))
+                        else '―'
+                    )
 
-                    # 都市計画区域内の公共交通カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_masstra_area01_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_MassTra_Area01_Pop'],
-                        (int, float),
-                    ):
-                        rate_masstra_area01_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_masstra_area01_pop
-                                        - previous_year_data[
-                                            'Rate_MassTra_Area01_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_MassTra_Area01_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_MassTra_Area01_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_masstra_area01_pop_change = '―'
+                    bus_pop_coverage_delta = (
+                        self.round_or_na(bus_pop_coverage - previous_year_data['bus_pop_coverage'], 2)
+                        if isinstance(previous_year_data['bus_pop_coverage'], (int, float))
+                        and isinstance(bus_pop_coverage, (int, float))
+                        else '―'
+                    )
 
-                    # 用途地域内の鉄道カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_train_area02_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Train_Area02_Pop'],
-                        (int, float),
-                    ):
-                        rate_train_area02_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_train_area02_pop
-                                        - previous_year_data[
-                                            'Rate_Train_Area02_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_Train_Area02_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Train_Area02_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_train_area02_pop_change = '―'
-
-                    # 用途地域内のバスカバー圏人口割合の変化率
-                    if isinstance(
-                        rate_buss_area02_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Buss_Area02_Pop'], (
-                            int, float)
-                    ):
-                        rate_buss_area02_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_buss_area02_pop
-                                        - previous_year_data[
-                                            'Rate_Buss_Area02_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data['Rate_Buss_Area02_Pop']
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Buss_Area02_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_buss_area02_pop_change = '―'
-
-                    # 用途地域内の公共交通カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_masstra_area02_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_MassTra_Area02_Pop'],
-                        (int, float),
-                    ):
-                        rate_masstra_area02_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_masstra_area02_pop
-                                        - previous_year_data[
-                                            'Rate_MassTra_Area02_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_MassTra_Area02_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_MassTra_Area02_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_masstra_area02_pop_change = '―'
-
-                    # 都市機能誘導区域内の鉄道カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_train_area03_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Train_Area03_Pop'],
-                        (int, float),
-                    ):
-                        rate_train_area03_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_train_area03_pop
-                                        - previous_year_data[
-                                            'Rate_Train_Area03_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_Train_Area03_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Train_Area03_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_train_area03_pop_change = '―'
-
-                    # 都市機能誘導区域内のバスカバー圏人口割合の変化率
-                    if isinstance(
-                        rate_buss_area03_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Buss_Area03_Pop'], (
-                            int, float)
-                    ):
-                        rate_buss_area03_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_buss_area03_pop
-                                        - previous_year_data[
-                                            'Rate_Buss_Area03_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data['Rate_Buss_Area03_Pop']
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Buss_Area03_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_buss_area03_pop_change = '―'
-
-                    # 都市機能誘導区域内の公共交通カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_masstra_area03_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_MassTra_Area03_Pop'],
-                        (int, float),
-                    ):
-                        rate_masstra_area03_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_masstra_area03_pop
-                                        - previous_year_data[
-                                            'Rate_MassTra_Area03_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_MassTra_Area03_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_MassTra_Area03_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_masstra_area03_pop_change = '―'
-
-                    # 居住誘導区域内の鉄道カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_train_area04_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Train_Area04_Pop'],
-                        (int, float),
-                    ):
-                        rate_train_area04_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_train_area04_pop
-                                        - previous_year_data[
-                                            'Rate_Train_Area04_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_Train_Area04_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Train_Area04_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_train_area04_pop_change = '―'
-
-                    # 居住誘導区域内のバスカバー圏人口割合の変化率
-                    if isinstance(
-                        rate_buss_area04_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_Buss_Area04_Pop'], (
-                            int, float)
-                    ):
-                        rate_buss_area04_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_buss_area04_pop
-                                        - previous_year_data[
-                                            'Rate_Buss_Area04_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data['Rate_Buss_Area04_Pop']
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_Buss_Area04_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_buss_area04_pop_change = '―'
-
-                    # 居住誘導区域内の公共交通カバー圏人口割合の変化率
-                    if isinstance(
-                        rate_masstra_area04_pop, (int, float)
-                    ) and isinstance(
-                        previous_year_data['Rate_MassTra_Area04_Pop'],
-                        (int, float),
-                    ):
-                        rate_masstra_area04_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        rate_masstra_area04_pop
-                                        - previous_year_data[
-                                            'Rate_MassTra_Area04_Pop'
-                                        ]
-                                    )
-                                    / previous_year_data[
-                                        'Rate_MassTra_Area04_Pop'
-                                    ]
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_year_data['Rate_MassTra_Area04_Pop'] > 0
-                            else '―'
-                        )
-                    else:
-                        rate_masstra_area04_pop_change = '―'
+                    transit_pop_coverage_delta = (
+                        self.round_or_na(transit_pop_coverage - previous_year_data['transit_pop_coverage'], 2)
+                        if isinstance(previous_year_data['transit_pop_coverage'], (int, float))
+                        and isinstance(transit_pop_coverage, (int, float))
+                        else '―'
+                    )
 
                 else:
-                    rate_train_area01_pop_change = '―'
-                    rate_buss_area01_pop_change = '―'
-                    rate_masstra_area01_pop_change = '―'
-                    rate_train_area02_pop_change = '―'
-                    rate_buss_area02_pop_change = '―'
-                    rate_masstra_area02_pop_change = '―'
-                    rate_train_area03_pop_change = '―'
-                    rate_buss_area03_pop_change = '―'
-                    rate_masstra_area03_pop_change = '―'
-                    rate_train_area04_pop_change = '―'
-                    rate_buss_area04_pop_change = '―'
-                    rate_masstra_area04_pop_change = '―'
+                    rail_pop_coverage_delta = '―'
+                    bus_pop_coverage_delta = '―'
+                    transit_pop_coverage_delta = '―'
 
                 # データを辞書にまとめる
                 year_data = {
-                    # 年度
-                    'Year': year,
-                    # 市内総人口
-                    'Total_Pop': total_pop,
-                    # 市内の鉄道カバー圏人口
-                    'Train_Area00_Pop': train_area00_pop,
-                    # 市内のバスカバー圏人口
-                    'Buss_Area00_Pop': buss_area00_pop,
-                    # 市内の公共交通カバー圏人口
-                    'MassTra_Area00_Pop': masstra_area00_pop,
-                    # 都市計画区域内の人口
-                    'Total_Area01_Pop': total_area01_pop,
-                    # 都市計画区域内の鉄道カバー圏人口
-                    'Train_Area01_Pop': train_area01_pop,
-                    # 都市計画区域内のバスカバー圏人口
-                    'Buss_Area01_Pop': buss_area01_pop,
-                    # 都市計画区域内の公共交通カバー圏人口
-                    'MassTra_Area01_Pop': masstra_area01_pop,
-                    # 用途地域内の人口
-                    'Total_Area02_Pop': total_area02_pop,
-                    # 用途地域内の鉄道カバー圏人口
-                    'Train_Area02_Pop': train_area02_pop,
-                    # 用途地域内のバスカバー圏人口
-                    'Buss_Area02_Pop': buss_area02_pop,
-                    # 用途地域内の公共交通カバー圏人口
-                    'MassTra_Area02_Pop': masstra_area02_pop,
-                    # 都市機能誘導区域内の人口
-                    'Total_Area03_Pop': total_area03_pop,
-                    # 都市機能誘導区域内の鉄道カバー圏人口
-                    'Train_Area03_Pop': train_area03_pop,
-                    # 都市機能誘導区域内のバスカバー圏人口
-                    'Buss_Area03_Pop': buss_area03_pop,
-                    # 都市機能誘導区域内の公共交通カバー圏人口
-                    'MassTra_Area03_Pop': masstra_area03_pop,
-                    # 居住誘導区域内の人口
-                    'Total_Area04_Pop': total_area04_pop,
-                    # 居住誘導区域内の鉄道カバー圏人口
-                    'Train_Area04_Pop': train_area04_pop,
-                    # 居住誘導区域内のバスカバー圏人口
-                    'Buss_Area04_Pop': buss_area04_pop,
-                    # 居住誘導区域内の公共交通カバー圏人口
-                    'MassTra_Area04_Pop': masstra_area04_pop,
-                    # 市内の鉄道カバー圏人口割合
-                    'Rate_Train_Area00_Pop': rate_train_area00_pop,
-                    # 市内のバスカバー圏人口割合
-                    'Rate_Buss_Area00_Pop': rate_buss_area00_pop,
-                    # 市内の公共交通カバー圏人口割合
-                    'Rate_MassTra_Area00_Pop': rate_masstra_area00_pop,
-                    # 都市計画区域内の鉄道カバー圏人口割合
-                    'Rate_Train_Area01_Pop': rate_train_area01_pop,
-                    # 都市計画区域内のバスカバー圏人口割合
-                    'Rate_Buss_Area01_Pop': rate_buss_area01_pop,
-                    # 都市計画区域内の公共交通カバー圏人口割合
-                    'Rate_MassTra_Area01_Pop': rate_masstra_area01_pop,
-                    # 用途地域内の鉄道カバー圏人口割合
-                    'Rate_Train_Area02_Pop': rate_train_area02_pop,
-                    # 用途地域内のバスカバー圏人口割合
-                    'Rate_Buss_Area02_Pop': rate_buss_area02_pop,
-                    # 用途地域内の公共交通カバー圏人口割合
-                    'Rate_MassTra_Area02_Pop': rate_masstra_area02_pop,
-                    # 都市機能誘導区域内の鉄道カバー圏人口割合
-                    'Rate_Train_Area03_Pop': rate_train_area03_pop,
-                    # 都市機能誘導区域内のバスカバー圏人口割合
-                    'Rate_Buss_Area03_Pop': rate_buss_area03_pop,
-                    # 都市機能誘導区域内の公共交通カバー圏人口割合
-                    'Rate_MassTra_Area03_Pop': rate_masstra_area03_pop,
-                    # 居住誘導区域内の鉄道カバー圏人口割合
-                    'Rate_Train_Area04_Pop': rate_train_area04_pop,
-                    # 居住誘導区域内のバスカバー圏人口割合
-                    'Rate_Buss_Area04_Pop': rate_buss_area04_pop,
-                    # 居住誘導区域内の公共交通カバー圏人口割合
-                    'Rate_MassTra_Area04_Pop': rate_masstra_area04_pop,
-                    # 都市計画区域内の鉄道カバー圏人口割合の変化率
-                    'Rate_Train_Area01_Pop_Change': rate_train_area01_pop_change,
-                    # 都市計画区域内のバスカバー圏人口割合の変化率
-                    'Rate_Buss_Area01_Pop_Change': rate_buss_area01_pop_change,
-                    # 都市計画区域内の公共交通カバー圏人口割合の変化率
-                    'Rate_MassTra_Area01_Pop_Change': rate_masstra_area01_pop_change,
-                    # 用途地域内の鉄道カバー圏人口割合の変化率
-                    'Rate_Train_Area02_Pop_Change': rate_train_area02_pop_change,
-                    # 用途地域内のバスカバー圏人口割合の変化率
-                    'Rate_Buss_Area02_Pop_Change': rate_buss_area02_pop_change,
-                    # 用途地域内の公共交通カバー圏人口割合の変化率
-                    'Rate_MassTra_Area02_Pop_Change': rate_masstra_area02_pop_change,
-                    # 都市機能誘導区域内の鉄道カバー圏人口割合の変化率
-                    'Rate_Train_Area03_Pop_Change': rate_train_area03_pop_change,
-                    # 都市機能誘導区域内のバスカバー圏人口割合の変化率
-                    'Rate_Buss_Area03_Pop_Change': rate_buss_area03_pop_change,
-                    # 都市機能誘導区域内の公共交通カバー圏人口割合の変化率
-                    'Rate_MassTra_Area03_Pop_Change': rate_masstra_area03_pop_change,
-                    # 居住誘導区域内の鉄道カバー圏人口割合の変化率
-                    'Rate_Train_Area04_Pop_Change': rate_train_area04_pop_change,
-                    # 居住誘導区域内のバスカバー圏人口割合の変化率
-                    'Rate_Buss_Area04_Pop_Change': rate_buss_area04_pop_change,
-                    # 居住誘導区域内の公共交通カバー圏人口割合の変化率
-                    'Rate_MassTra_Area04_Pop_Change': rate_masstra_area04_pop_change,
-                    # 公共交通分担率
-                    'Share_Public_Transportation': share_public_transportation,
-                    # 公共交通分担率（鉄道）
-                    'Share_Public_Transportation_Train': share_public_transportation_train,
-                    # 公共交通分担率（バス）
-                    'Share_Public_Transportation_Bus': share_public_transportation_bus,
+                    # 年次
+                    'year': year,
+                    # 公共交通徒歩圏人口カバー率
+                    'transit_walk_pop_coverage': '',
+                    # 徒歩圏人口カバー率の増減
+                    'transit_walk_pop_coverage_delta': '',
+                    # 全国平均値
+                    'transit_walk_pop_coverage_national_avg': '',
+                    # 都道府県平均値
+                    'transit_walk_pop_coverage_pref_avg': '',
+                    # 鉄道カバー人口
+                    'rail_pop_covered': rail_pop_covered,
+                    # 鉄道カバー率
+                    'rail_pop_coverage': rail_pop_coverage,
+                    # 鉄道カバー率増減
+                    'rail_pop_coverage_delta': rail_pop_coverage_delta if data_list else '―',
+                    # 全国平均値
+                    'rail_pop_coverage_national_avg': '',
+                    # 都道府県平均値
+                    'rail_pop_coverage_pref_avg': '',
+                    # バスカバー人口
+                    'bus_pop_covered': bus_pop_covered,
+                    # バスカバー率
+                    'bus_pop_coverage': bus_pop_coverage,
+                    # バスカバー率増減
+                    'bus_pop_coverage_delta': bus_pop_coverage_delta if data_list else '―',
+                    # 全国平均値
+                    'bus_pop_coverage_national_avg': '',
+                    # 都道府県平均値
+                    'bus_pop_coverage_pref_avg': '',
+                    # 交通共通カバー人口
+                    'transit_pop_covered': transit_pop_covered,
+                    # 交通共通カバー率
+                    'transit_pop_coverage': transit_pop_coverage,
+                    # 交通共通カバー率増減
+                    'transit_pop_coverage_delta': transit_pop_coverage_delta if data_list else '―',
+                    # 全国平均値
+                    'transit_pop_coverage_national_avg': '',
+                    # 都道府県平均値
+                    'transit_pop_coverage_pref_avg': '',
                 }
 
                 # 辞書をリストに追加
@@ -952,7 +330,7 @@ class PublicTransportMetricCalculator:
         except Exception as e:
             # エラーメッセージのログ出力
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -990,7 +368,7 @@ class PublicTransportMetricCalculator:
             # エラーメッセージのログ出力
             msg = self.tr(
                 "An error occurred during file export: %1."
-            ).replace("%1", e)
+            ).replace("%1", str(e))
             QgsMessageLog.logMessage(
                 msg,
                 self.tr("Plugin"),
@@ -1041,7 +419,10 @@ class PublicTransportMetricCalculator:
         result = target_layer.aggregate(
             QgsAggregateCalculator.Aggregate.Sum, sum_field
         )
-        result = int(result[0]) if result[0] is not None else 0
+        try:
+            result = int(result[0]) if result[0] is not None else 0
+        except (ValueError, TypeError):
+            result = 0
 
         # フィルタ解除
         if condition is not None:

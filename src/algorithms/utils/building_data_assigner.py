@@ -11,11 +11,10 @@ import re
 import processing
 from qgis.core import (
     QgsCoordinateTransform,
-    QgsProject,
+    QgsCoordinateTransformContext,
     QgsFeatureRequest,
     QgsField,
     QgsSpatialIndex,
-    QgsVectorLayer,
     Qgis,
     QgsMessageLog,
 )
@@ -26,8 +25,8 @@ from .gpkg_manager import GpkgManager
 
 class BuildingDataAssigner:
     """建築物LOD1へのデータ付与機能"""
-    def __init__(self, base_path, check_canceled_callback=None):
-        self.gpkg_manager = GpkgManager._instance
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
+        self.gpkg_manager = gpkg_manager
         self.base_path = base_path
         self.check_canceled = check_canceled_callback
 
@@ -53,21 +52,24 @@ class BuildingDataAssigner:
                 'meshes', None, withload_project=False
             )
 
-            # データソースと一致するレイヤをレイヤパネルから取得
-            buildings_layer_uri = buildings_layer.dataProvider().dataSourceUri()
-            project = QgsProject.instance()
+            if buildings_layer is None:
+                msg = self.tr("Buildings layer could not be loaded.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Critical,
+                )
+                raise Exception(msg)
 
-            # レイヤパネルから一致するレイヤを検索
-            buildings_layer = next(
-                (
-                    layer
-                    for layer in project.mapLayers().values()
-                    if isinstance(layer, QgsVectorLayer)
-                    and layer.dataProvider().dataSourceUri()
-                    == buildings_layer_uri
-                ),
-                None,
-            )
+            # meshes_layerがNoneでないことを確認
+            if meshes_layer is None:
+                msg = self.tr("Meshes layer could not be loaded.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Critical,
+                )
+                raise Exception(msg)
 
             # CRSの違いを考慮
             transform = None
@@ -75,7 +77,7 @@ class BuildingDataAssigner:
                 transform = QgsCoordinateTransform(
                     meshes_layer.crs(),
                     buildings_layer.crs(),
-                    QgsProject.instance(),
+                    QgsCoordinateTransformContext(),
                 )
 
             # population_fieldsを正規表現でフィルタリング
@@ -127,6 +129,8 @@ class BuildingDataAssigner:
                 buildings_in_mesh = []
 
                 # メッシュ内の建物の居住部分の総床面積を計算
+                unknown_floor_area_buildings = []  # 床面積不明(-9999/空/NULL)の住宅系建物
+
                 for building_feature in buildings_layer.getFeatures(request):
                     if self.check_canceled():
                         return  # キャンセルチェック
@@ -137,13 +141,6 @@ class BuildingDataAssigner:
                     if mesh_geom.contains(building_centroid):
                         usage = building_feature['usage']
 
-                        # 建築面積（total_floor_area）が10㎡未満ならスキップ
-                        total_floor_area = float(
-                            building_feature['total_floor_area'] or 0.0
-                        )
-                        if total_floor_area < 10:
-                            continue
-
                         if usage in [
                             '住宅',
                             '共同住宅',
@@ -151,6 +148,28 @@ class BuildingDataAssigner:
                             '店舗等併用共同住宅',
                             '作業所併用住宅',
                         ]:
+                            # 床面積を取得
+                            raw_floor_area = building_feature['total_floor_area']
+
+                            # 床面積不明(-9999/空/NULL)かどうかを判定
+                            is_unknown_floor_area = (
+                                raw_floor_area is None or
+                                raw_floor_area == '' or
+                                (isinstance(raw_floor_area, QVariant) and raw_floor_area.isNull()) or
+                                float(raw_floor_area if raw_floor_area else 0) == -9999
+                            )
+
+                            if is_unknown_floor_area:
+                                # 床面積不明の住宅系建物を記録
+                                unknown_floor_area_buildings.append(building_feature)
+                                continue
+
+                            total_floor_area = float(raw_floor_area or 0.0)
+
+                            # 建築面積（total_floor_area）が10㎡未満ならスキップ
+                            if total_floor_area < 10:
+                                continue
+
                             living_area = self.__calculate_living_area(
                                 building_feature
                             )
@@ -160,6 +179,46 @@ class BuildingDataAssigner:
                             )
 
                 # 各建物に対して人口を按分して計算
+                if total_living_area > 0:
+                    # 通常の按分処理（10㎡以上の住宅系建物がある場合）
+                    pass
+                elif unknown_floor_area_buildings:
+                    # 10㎡以上の住宅系建物がなく、床面積不明の住宅系建物がある場合
+                    # 床面積不明の建物に均等に人口を付与
+                    num_buildings = len(unknown_floor_area_buildings)
+                    for building_feature in unknown_floor_area_buildings:
+                        building_population = {}
+
+                        for field in population_fields:
+                            field_id = buildings_layer.fields().indexFromName(field)
+                            if field_id == -1:
+                                continue
+
+                            value = mesh_feature[field]
+                            current_value = building_feature[field]
+                            if (
+                                isinstance(current_value, QVariant)
+                                and current_value.isNull()
+                            ):
+                                current_value = 0
+                            else:
+                                current_value = float(current_value or 0)
+
+                            value = float(value or 0)
+
+                            # 均等に人口を付与
+                            building_population[field_id] = (
+                                current_value + value / num_buildings
+                            )
+
+                        fid = building_feature.id()
+                        if fid not in attribute_updates:
+                            attribute_updates[fid] = {}
+                        attribute_updates[fid].update(building_population)
+
+                    processed_count += num_buildings
+                    continue  # 次のメッシュへ
+
                 if total_living_area > 0:
                     if self.check_canceled():
                         return  # キャンセルチェック
@@ -222,11 +281,11 @@ class BuildingDataAssigner:
             return True
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def assign_vacant_to_buildings(self):
         """空き家データの付与"""
@@ -239,21 +298,34 @@ class BuildingDataAssigner:
                 'vacancies', None, withload_project=False
             )
 
-            # データソースと一致するレイヤをレイヤパネルから取得
-            buildings_layer_uri = buildings_layer.dataProvider().dataSourceUri()
-            project = QgsProject.instance()
+            if buildings_layer is None:
+                msg = self.tr("Buildings layer could not be loaded.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Critical,
+                )
+                raise Exception(msg)
 
-            # レイヤパネルから一致するレイヤを検索
-            buildings_layer = next(
-                (
-                    layer
-                    for layer in project.mapLayers().values()
-                    if isinstance(layer, QgsVectorLayer)
-                    and layer.dataProvider().dataSourceUri()
-                    == buildings_layer_uri
-                ),
-                None,
-            )
+            # vacancies_layerがNoneでないことを確認
+            if vacancies_layer is None:
+                msg = self.tr("Vacancies layer could not be loaded. Skipping vacant house assignment.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                return True  # 空き家データがなくても処理は続行
+
+            # 空き家レイヤが空の場合は処理をスキップ
+            if vacancies_layer.featureCount() == 0:
+                msg = self.tr("Vacancies layer is empty. Skipping vacant house assignment.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+                return True  # 空き家データがなくても処理は続行
 
             # 属性名を取得
             fields = buildings_layer.fields()
@@ -364,21 +436,26 @@ class BuildingDataAssigner:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def __calculate_living_area(self, building_feature):
         """建物の住居部分床面積を計算する"""
         total_floor_area = float(building_feature['total_floor_area'] or 0.0)
-        storeys_above_ground = int(
-            building_feature['storeys_above_ground'] or 1
-        )
-        storeys_below_ground = int(
-            building_feature['storeys_below_ground'] or 0
-        )
+
+        # 地上階数の取得（PLATEAU仕様: 9999は「不明」を表す）
+        storeys_above_ground_raw = building_feature['storeys_above_ground'] or 1
+        # 不明の場合は1（1階建て）として扱う
+        storeys_above_ground = 1 if storeys_above_ground_raw == 9999 else int(storeys_above_ground_raw)
+
+        # 地下階数の取得（PLATEAU仕様: 9999は「不明」を表す）
+        storeys_below_ground_raw = building_feature['storeys_below_ground'] or 0
+        # 不明の場合は0（地下なし）として扱う
+        storeys_below_ground = 0 if storeys_below_ground_raw == 9999 else int(storeys_below_ground_raw)
+
         storeys = storeys_above_ground + storeys_below_ground
 
         if storeys == 1:

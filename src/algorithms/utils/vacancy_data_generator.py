@@ -24,9 +24,9 @@ from .gpkg_manager import GpkgManager
 class VacancyDataGenerator:
     """空き家データ作成"""
 
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         # GeoPackageマネージャーを初期化
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
         # インプットデータパス
         self.base_path = base_path
 
@@ -39,8 +39,8 @@ class VacancyDataGenerator:
     def create_vacancy(self):
         """空き家データ取り込み・作成処理"""
         try:
-            # base_path 配下の「空き家ポイント」フォルダを再帰的に探索してShapefileを収集
-            vacancy_folder = os.path.join(self.base_path, "空き家ポイント")
+            # base_path 配下の「24_空き家ポイント」フォルダを再帰的に探索してShapefileを収集
+            vacancy_folder = os.path.join(self.base_path, "24_空き家ポイント")
             shp_files = self.__get_shapefiles(vacancy_folder)
 
             # プロジェクトのCRSを取得
@@ -170,7 +170,7 @@ class VacancyDataGenerator:
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise error
 
     def __get_shapefiles(self, directory):
         """指定されたディレクトリ配下のすべてのShapefile (.shp) を再帰的に取得する"""

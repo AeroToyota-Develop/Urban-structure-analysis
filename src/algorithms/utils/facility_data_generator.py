@@ -9,13 +9,17 @@
 import os
 import re
 import chardet
+import json
+import processing
 from qgis.core import (
     QgsMessageLog,
     Qgis,
     QgsVectorLayer,
     QgsField,
     QgsFeature,
-    QgsFeatureRequest,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsCoordinateTransformContext,
 )
 from PyQt5.QtCore import QCoreApplication, QVariant
 from .gpkg_manager import GpkgManager
@@ -23,29 +27,20 @@ from .gpkg_manager import GpkgManager
 class FacilityDataGenerator:
     """施設関連データ作成機能"""
     FACILITY_TYPES = {
-        "行政施設ポイント": 1,
-        "医療施設ポイント": 3,
-        "福祉施設ポイント": 4,
-        "学校ポイント": 6,
-        "文化施設ポイント": 7,
+        "8_都市機能誘導施設": 0,
+        "1_行政機能": 1,
+        "7_商業機能": 2,
+        "4_医療機能": 3,
+        "6_子育て機能": 4,
+        "3_介護・福祉機能": 5,
+        "5_教育機能": 6,
+        "2_文化交流機能": 7,
     }
 
-    FIELD_MAPPINGS = {
-        # 行政施設ポイント
-        1: {"name_field": "P05_003", "address_field": "P05_004"},
-        # 医療施設ポイント
-        3: {"name_field": "P04_002", "address_field": "P04_003"},
-        # 福祉施設ポイント
-        4: {"name_field": "P14_008", "address_field": "P14_004"},
-        # 学校ポイント
-        6: {"name_field": "P29_004", "address_field": "P29_005"},
-        # 文化施設ポイント
-        7: {"name_field": "P27_005", "address_field": "P27_006"},
-    }
 
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         # GeoPackageマネージャーを初期化
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
         # インプットデータパス
         self.base_path = base_path
 
@@ -59,52 +54,59 @@ class FacilityDataGenerator:
         """施設データ取り込み"""
         try:
             layers = []
+            target_years = ["設定年", "最新年"]
+
             for facility_type, file_type in self.FACILITY_TYPES.items():
-                facility_folder = os.path.join(
-                    self.base_path, "施設", facility_type
-                )
-                shp_files = self.__get_shapefiles(facility_folder)
-
-                if not shp_files:
-                    msg = self.tr(
-                        "The Shapefile for %1 was not found."
-                    ).replace("%1", facility_type)
-
-                    QgsMessageLog.logMessage(
-                        msg,
-                        self.tr("Plugin"),
-                        Qgis.Warning,
+                for year_folder in target_years:
+                    facility_folder = os.path.join(
+                        self.base_path, "08_施設", facility_type, year_folder
                     )
-                    continue
 
-                if self.check_canceled():
-                    return  # キャンセルチェック
+                    if not os.path.exists(facility_folder):
+                        continue
 
-                for shp_file in shp_files:
-                    year = self.__extract_year_from_path(shp_file)
-                    encoding = self.__detect_encoding(shp_file)
+                    shp_files = self.__get_shapefiles(facility_folder)
 
-                    # Shapefile 読み込み時にエンコーディングを指定
-                    layer = QgsVectorLayer(
-                        shp_file, os.path.basename(shp_file), "ogr"
-                    )
-                    layer.setProviderEncoding(encoding)
-
-                    # レイヤの有効性を確認
-                    if not layer.isValid():
+                    if not shp_files:
                         msg = self.tr(
-                            "Failed to load layer: %1"
-                        ).replace("%1", shp_file)
+                            "The Shapefile for %1/%2 was not found."
+                        ).replace("%1", facility_type).replace("%2", year_folder)
+
                         QgsMessageLog.logMessage(
                             msg,
                             self.tr("Plugin"),
                             Qgis.Warning,
                         )
-
-                    layers.append((layer, year, file_type))
+                        continue
 
                     if self.check_canceled():
                         return  # キャンセルチェック
+
+                    for shp_file in shp_files:
+                        year = year_folder  # "設定年" or "最新年"
+                        encoding = self.__detect_encoding(shp_file)
+
+                        # Shapefile 読み込み時にエンコーディングを指定
+                        layer = QgsVectorLayer(
+                            shp_file, os.path.basename(shp_file), "ogr"
+                        )
+                        layer.setProviderEncoding(encoding)
+
+                        # レイヤの有効性を確認
+                        if not layer.isValid():
+                            msg = self.tr(
+                                "Failed to load layer: %1"
+                            ).replace("%1", shp_file)
+                            QgsMessageLog.logMessage(
+                                msg,
+                                self.tr("Plugin"),
+                                Qgis.Warning,
+                            )
+
+                        layers.append((layer, year, file_type))
+
+                        if self.check_canceled():
+                            return  # キャンセルチェック
 
             # レイヤを結合し、施設データを作成
             facility_layer = self.__create_facilities_layer(layers)
@@ -128,11 +130,11 @@ class FacilityDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def __get_shapefiles(self, directory):
         """指定されたディレクトリ配下のすべてのShapefile (.shp) を再帰的に取得する"""
@@ -150,45 +152,15 @@ class FacilityDataGenerator:
                     shp_files.append(os.path.join(root, file))
         return shp_files
 
-    def __extract_year_from_path(self, file_path):
-        """ファイルパスから年度を抽出"""
-        try:
-            match = re.search(r'(\d{4})年', file_path)
-            if match:
-                return int(match.group(1))
-            else:
-                msg = self.tr(
-                    "Failed to extract year from file path: %1"
-                ).replace(
-                    "%1", file_path
-                )
-                QgsMessageLog.logMessage(
-                    msg,
-                    self.tr("Plugin"),
-                    Qgis.Warning,
-                )
-                return None
-        except Exception as e:
-            msg = self.tr(
-                "An error occurred during year extraction: %1"
-            ).replace(
-                "%1", str(e)
-            )
-            QgsMessageLog.logMessage(
-                msg,
-                self.tr("Plugin"),
-                Qgis.Critical,
-            )
-            return None
-
     def __create_facilities_layer(self, layers):
-        """複数の施設レイヤを1つの統合レイヤに変換し、商業施設を追加"""
+        """複数の施設レイヤを1つの統合レイヤに変換"""
         # 統合レイヤを作成
         fields = [
-            QgsField("year", QVariant.Int),
+            QgsField("year", QVariant.String),
             QgsField("name", QVariant.String),
             QgsField("type", QVariant.Int),
             QgsField("address", QVariant.String),
+            QgsField("properties", QVariant.String),
         ]
         facility_layer = QgsVectorLayer(
             "Point?crs=EPSG:4326", "facilities", "memory"
@@ -200,83 +172,71 @@ class FacilityDataGenerator:
         # レイヤの編集を開始
         facility_layer.startEditing()
 
+        # 都市施設CRS（EPSG:4326）
+        target_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+
         # 施設データの収集と統合
         for layer, year, file_type in layers:
             if self.check_canceled():
                 return  # キャンセルチェック
+
+            # 元のレイヤのCRSを確認し、必要ならレイヤ全体を変換
+            source_crs = layer.crs()
+            if source_crs != target_crs:
+                msg = self.tr(
+                    "Transforming CRS from %1 to %2 for layer: %3"
+                ).replace("%1", source_crs.authid()
+                ).replace("%2", target_crs.authid()
+                ).replace("%3", layer.name())
+                QgsMessageLog.logMessage(msg, self.tr("Plugin"), Qgis.Info)
+
+                # レイヤ全体をCRS変換
+                reprojected_result = processing.run(
+                    "native:reprojectlayer",
+                    {
+                        'INPUT': layer,
+                        'TARGET_CRS': target_crs,
+                        'OUTPUT': 'memory:'
+                    }
+                )
+                layer = reprojected_result['OUTPUT']
+
             for feature in layer.getFeatures():
                 new_feature = QgsFeature()
                 new_feature.setGeometry(feature.geometry())
                 new_feature.setFields(facility_layer.fields())
 
-                # フィールドのマッピングを使用して name と address を取得
-                if file_type == 4:
-                    # 福祉施設ポイントは大分類によって、子育て施設と福祉施設を判別
-                    name = (
-                        feature["P14_008"]
-                        if "P14_008" in feature.fields().names()
-                        else None
-                    )
-                    address = (
-                        feature["P14_004"]
-                        if "P14_004" in feature.fields().names()
-                        else None
-                    )
-                    type_code = self.__get_welfare_type(feature["P14_005"])
-                elif file_type in self.FIELD_MAPPINGS:
-                    mapping = self.FIELD_MAPPINGS[file_type]
-                    name = (
-                        feature[mapping["name_field"]]
-                        if mapping["name_field"] in feature.fields().names()
-                        else None
-                    )
-                    address = (
-                        feature[mapping["address_field"]]
-                        if mapping["address_field"] in feature.fields().names()
-                        else None
-                    )
-                    type_code = file_type
+                # 介護・福祉機能はP14_005属性で子育て(4)/福祉(5)を判別、なければ全件福祉(5)
+                # 子育て機能は全件子育て(4)として取り込む
+                if file_type == 5:
+                    # 介護・福祉機能フォルダの場合
+                    if "P14_005" in feature.fields().names() and feature["P14_005"] is not None:
+                        type_code = self.__get_welfare_type(feature["P14_005"])
+                    else:
+                        type_code = 5  # P14_005がなければ福祉機能
                 else:
-                    msg = self.tr(
-                        "Skipped feature %1. Unknown type: %2."
-                    ).replace("%1", str(feature.id())).replace("%2", file_type)
+                    type_code = file_type
 
-                    QgsMessageLog.logMessage(
-                        msg,
-                        self.tr("Plugin"),
-                        Qgis.Info,
-                    )
-                    continue
+                # すべての属性をJSON形式で保存
+                attributes = {}
+                for field_name in feature.fields().names():
+                    value = feature[field_name]
+                    # QVariantをPython型に変換
+                    if value is not None and not isinstance(value, (str, int, float, bool)):
+                        value = str(value)
+                    attributes[field_name] = value
+
+                properties_json = ""
+                if attributes:
+                    properties_json = json.dumps(attributes, ensure_ascii=False)
 
                 # フィーチャの属性を設定
                 new_feature.setAttribute("year", year)
-                new_feature.setAttribute("name", name)
+                new_feature.setAttribute("name", "")
                 new_feature.setAttribute("type", type_code)
-                new_feature.setAttribute("address", address)
+                new_feature.setAttribute("address", "")
+                new_feature.setAttribute("properties", properties_json)
                 provider.addFeature(new_feature)
-
-        # 商業施設の情報をfacilitiesレイヤに追加
-        buildings_layer = self.gpkg_manager.load_layer(
-            'buildings', None, withload_project=False
-        )  # buildingsレイヤ
-        request = QgsFeatureRequest().setFilterExpression(
-            '"usage" = \'商業施設\''
-        )  # 使用用途が商業施設のものを抽出
-        for feature in buildings_layer.getFeatures(request):
-            if self.check_canceled():
-                return  # キャンセルチェック
-            new_feature = QgsFeature()
-            # ポリゴンの中心をポイントとして取得
-            centroid = feature.geometry().centroid()
-            new_feature.setGeometry(centroid)
-            new_feature.setFields(facility_layer.fields())
-
-            # 属性設定
-            new_feature.setAttribute("name", None)
-            new_feature.setAttribute("address", feature["address"])
-            new_feature.setAttribute("year", None)
-            new_feature.setAttribute("type", 2)
-            provider.addFeature(new_feature)
 
         # 編集内容をコミットして保存
         facility_layer.commitChanges()

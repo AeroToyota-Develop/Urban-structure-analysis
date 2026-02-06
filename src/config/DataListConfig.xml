@@ -10,36 +10,16 @@
           <value>0</value>
         </sub_item>
         <sub_item>
-          <label>誘導区域内人口のプロポーション(%)の変化</label>
+          <label>居住誘導区域内人口割合</label>
           <value>101</value>
         </sub_item>
         <sub_item>
-          <label>誘導区域内人口のプロポーション(%)の変化の変化</label>
-          <value>102</value>
-        </sub_item>
-        <sub_item>
-          <label>居住誘導区域人口密度</label>
+          <label>居住誘導区域内人口密度</label>
           <value>103</value>
         </sub_item>
         <sub_item>
-          <label>居住誘導区域人口密度の変化</label>
+          <label>行政区域人口と居住誘導区域内人口</label>
           <value>104</value>
-        </sub_item>
-        <sub_item>
-          <label>年代別の誘導区域内人口のプロポーション(%)の変化</label>
-          <value>105</value>
-        </sub_item>
-        <sub_item>
-          <label>年代別の居住誘導区域人口密度の変化</label>
-          <value>106</value>
-        </sub_item>
-        <sub_item>
-          <label>誘導区域の適切さ（S/p）</label>
-          <value>107</value>
-        </sub_item>
-        <sub_item>
-          <label>誘導区域の適切さ（S/r）</label>
-          <value>108</value>
         </sub_item>
       </sub_items>
     </item>
@@ -51,8 +31,16 @@
           <value>1</value>
         </sub_item>
         <sub_item>
-          <label>都市機能誘導区域内誘導施設の標準的都市機能のプロポーション(%)の変化</label>
+          <label>都市機能誘導区域内誘導施設割合</label>
           <value>201</value>
+        </sub_item>
+        <sub_item>
+          <label>一定の都市機能の都市機能誘導区域内割合</label>
+          <value>202</value>
+        </sub_item>
+        <sub_item>
+          <label>一定の都市機能の居住誘導区域内割合</label>
+          <value>203</value>
         </sub_item>
       </sub_items>
     </item>
@@ -64,25 +52,16 @@
           <value>2</value>
         </sub_item>
         <sub_item>
-          <label>ハザードエリア（浸水以外）のプロポーション(%)の変化</label>
+          <label>災害リスク高エリア人口割合（洪水浸水L1）</label>
           <value>301</value>
         </sub_item>
         <sub_item>
-          <label>浸水想定最大規模のプロポーションの変化</label>
+          <label>災害リスク高エリア人口割合（洪水浸水L2）</label>
           <value>302</value>
         </sub_item>
         <sub_item>
-          <label>計画規模のプロポーションの変化</label>
+          <label>災害リスク高エリア人口割合（津波浸水）</label>
           <value>303</value>
-        </sub_item>
-        <!-- 304:安全エリアへの誘導可能性(安全エリアの割合)は不要となったため欠番-->
-        <sub_item>
-          <label>誘導区域内におけるハザードエリアの有無</label>
-          <value>305</value>
-        </sub_item>
-        <sub_item>
-          <label>避難施設からの人口カバー率の変化</label>
-          <value>306</value>
         </sub_item>
       </sub_items>
     </item>
@@ -94,20 +73,8 @@
           <value>3</value>
         </sub_item>
         <sub_item>
-          <label>公共交通(鉄道)人口カバー率の変化</label>
+          <label>公共交通沿線人口割合</label>
           <value>401</value>
-        </sub_item>
-        <sub_item>
-          <label>公共交通(バス)人口カバー率の変化</label>
-          <value>402</value>
-        </sub_item>
-        <sub_item>
-          <label>公共交通分担率</label>
-          <value>403</value>
-        </sub_item>
-        <sub_item>
-          <label>誘導区域内における公共交通カバーエリア</label>
-          <value>404</value>
         </sub_item>
       </sub_items>
     </item>
@@ -119,16 +86,8 @@
           <value>4</value>
         </sub_item>
         <sub_item>
-          <label>誘導区域外の宅地開発面積(or件数)</label>
+          <label>居住誘導区域内外建物新築傾向</label>
           <value>501</value>
-        </sub_item>
-        <sub_item>
-          <label>空き家率の変化</label>
-          <value>502</value>
-        </sub_item>
-        <sub_item>
-          <label>居住誘導区域に含まれる空地割合</label>
-          <value>503</value>
         </sub_item>
       </sub_items>
     </item>
@@ -140,8 +99,33 @@
           <value>5</value>
         </sub_item>
         <sub_item>
-          <label>誘導区域内外の公示地価の変化率</label>
+          <label>地価固定資産税収（土地）の変化率</label>
           <value>601</value>
+        </sub_item>
+        <sub_item>
+          <label>一人当たり歳出額の変化</label>
+          <value>602</value>
+        </sub_item>
+        <sub_item>
+          <label>地価固定資産税収額</label>
+          <value>603</value>
+        </sub_item>
+        <sub_item>
+          <label>一人当たり歳出額</label>
+          <value>604</value>
+        </sub_item>
+      </sub_items>
+    </item>
+    <item>
+      <label>将来人口と目標人口の関係性</label>
+      <sub_items>
+        <sub_item>
+          <label> </label>
+          <value>6</value>
+        </sub_item>
+        <sub_item>
+          <label>将来人口と目標人口の関係性</label>
+          <value>701</value>
         </sub_item>
       </sub_items>
     </item>

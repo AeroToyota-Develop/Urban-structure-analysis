@@ -21,6 +21,8 @@
  ***************************************************************************/
 """
 import os
+import re
+import tempfile
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 
@@ -40,6 +42,13 @@ _config_dir = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), '../config'
 )
 _config_file = os.path.join(_config_dir, 'LayersColoringConfig.xml')
+
+_qml_dir = os.path.join(os.path.dirname(
+    os.path.abspath(__file__)), '../qml_files'
+)
+
+_datalist_config_file = os.path.join(_config_dir, 'DataListConfig.xml')
+_qml_directory_config_file = os.path.join(_config_dir, 'QmlFilesDirectoryConfig.xml')
 
 def safe_find(element, tag, default=''):
     """
@@ -83,6 +92,9 @@ class LayersColoring:
         self.layer = self.iface.activeLayer()
         self.layer_config = self.load_layer_config()
 
+        self.datalist_config = self.load_datalist_config()
+        self.qml_base_folder = self.load_qml_directory_config()
+
     def load_layer_config(self):
         """
         XML設定ファイルを読み取り、レイヤー情報を取得する関数
@@ -111,7 +123,10 @@ class LayersColoring:
                         layer, 'scale-visibility', 'false'
                     ),
                     'scale-max': safe_find(layer, 'scale-max', ''),
-                    'scale-min': safe_find(layer, 'scale-min', '')
+                    'scale-min': safe_find(layer, 'scale-min', ''),
+                    'enableSymbolLevels': safe_find(
+                        layer, 'enableSymbolLevels', 'false'
+                    )
                 }
 
                 for data in layer.find('datalist'):
@@ -121,6 +136,8 @@ class LayersColoring:
                         data_info['label_name'] = safe_find(
                             data, 'label_name', ''
                         )
+                        data_info['renderPass'] = safe_find(data, 'renderPass', '0')
+                        data_info['render'] = safe_find(data, 'render', 'true')
                     elif layer_info['type'] == 'graduated':
                         data_info['upperthreshold'] = (
                             data.find('upperthreshold').text
@@ -161,6 +178,129 @@ class LayersColoring:
                 datasets[item_val] = {}
             datasets[item_val][year] = layers
         return datasets
+
+    def load_qml_directory_config(self):
+        """
+        QmlFilesDirectoryConfig.xmlからQMLファイルのベースフォルダパスを読み込む
+
+        Summary:
+            QmlFilesDirectoryConfig.xmlの<folder>要素からパスを取得し、
+            見つからない場合は従来のqml_filesディレクトリを使用する
+
+        :return: QMLファイルのベースフォルダパス
+        :rtype: str
+        """
+        try:
+            if os.path.exists(_qml_directory_config_file):
+                tree = ET.parse(_qml_directory_config_file)
+                root = tree.getroot()
+                folder_element = root.find('folder')
+                if folder_element is not None and folder_element.text:
+                    base_path = folder_element.text.strip()
+                    print(f"QMLベースフォルダを設定: {base_path}")
+                    return base_path
+        except Exception as e:
+            print(f"QmlFilesDirectoryConfig.xml読み込みエラー: {str(e)}")
+
+        # デフォルトのqml_filesディレクトリを返す
+        print(f"デフォルトQMLディレクトリを使用: {_qml_dir}")
+        return _qml_dir
+
+    def load_datalist_config(self):
+        """
+        DataListConfig.xmlから評価指標のマッピング情報を読み込む
+
+        Summary:
+            DataListConfig.xmlからitem_valと評価指標名のマッピングを構築し、
+            フォルダ構造でのパス構築に使用する辞書を作成する
+
+        :return: 評価指標のマッピング辞書
+        :rtype: dict
+        """
+        mapping = {}
+
+        try:
+            if os.path.exists(_datalist_config_file):
+                tree = ET.parse(_datalist_config_file)
+                root = tree.getroot()
+
+                data_items = root.find('data_items')
+                if data_items is not None:
+                    for item in data_items.findall('item'):
+                        category_label = item.find('label')
+                        if category_label is not None:
+                            category_name = category_label.text
+
+                            sub_items = item.find('sub_items')
+                            if sub_items is not None:
+                                for sub_item in sub_items.findall('sub_item'):
+                                    label_elem = sub_item.find('label')
+                                    value_elem = sub_item.find('value')
+
+                                    if label_elem is not None and value_elem is not None:
+                                        label_text = label_elem.text
+                                        item_val = value_elem.text
+
+                                        # 空ラベルはスキップ
+                                        if label_text and label_text.strip():
+                                            mapping[item_val] = {
+                                                'category': category_name,
+                                                'subcategory': label_text.strip()
+                                            }
+
+                print(f"DataList設定を読み込み: {len(mapping)}件のマッピング")
+                return mapping
+
+        except Exception as e:
+            print(f"DataListConfig.xml読み込みエラー: {str(e)}")
+
+        return {}
+
+    def construct_qml_path_from_structure(self, layer_info, item_val):
+        """
+        フォルダ構造に基づいてQMLファイルパスを構築する
+
+        Summary:
+            DataListConfig.xmlの情報を使用して、以下の構造でQMLファイルパスを構築する:
+            qml_base_folder/カテゴリ名/サブカテゴリ名/レイヤー名.qml
+
+        :param layer_info: レイヤー情報辞書
+        :type layer_info: dict
+        :param item_val: アイテム値（DataListConfig.xmlのvalue）
+        :type item_val: str
+
+        :return: 構築されたQMLファイルパス（存在する場合）、存在しない場合はNone
+        :rtype: str or None
+        """
+        # item_valから評価指標情報を取得
+        if item_val not in self.datalist_config:
+            print(f"item_val {item_val} がDataListConfigに見つかりません")
+            return None
+
+        category = self.datalist_config[item_val]['category']
+        subcategory = self.datalist_config[item_val]['subcategory']
+        layer_name = layer_info.get('name', '')
+
+        if not all([category, subcategory, layer_name]):
+            print(f"必要な情報が不足: category={category}, subcategory={subcategory}, layer_name={layer_name}")
+            return None
+
+        # QMLファイル名を構築: レイヤー名.qml
+        qml_filename = f"{layer_name}.qml"
+
+        # フルパスを構築
+        full_path = os.path.join(
+            self.qml_base_folder,
+            category,
+            subcategory,
+            qml_filename
+        )
+
+        # ファイルの存在確認
+        if os.path.exists(full_path):
+            return full_path
+        else:
+            return None
 
     def apply_single_style(self, layer_info):
         """
@@ -262,6 +402,15 @@ class LayersColoring:
                         symbol.setOpacity(opacity)
                     except ValueError:
                         pass
+
+                if 'renderPass' != '':
+                    try:
+                        render_pass = int(data['renderPass'])
+                        for symbol_layer in symbol.symbolLayers():
+                            symbol_layer.setRenderingPass(render_pass)
+                    except (ValueError, TypeError):
+                        pass
+
             elif layer_info['geometryType'] == 'line':
                 symbol = QgsLineSymbol.createSimple({
                     'color': data['borderColor'],
@@ -284,11 +433,21 @@ class LayersColoring:
 
             category = QgsRendererCategory(data['value'], symbol, data['value'])
             category.setLabel(data['label_name'])
+
+            if data['render'] == 'true':
+                category.setRenderState(True)
+            else:
+                category.setRenderState(False)
+
             categories.append(category)
 
         renderer = QgsCategorizedSymbolRenderer(
             layer_info['column'], categories
         )
+
+        if layer_info['enableSymbolLevels'] == 'true':
+            renderer.setUsingSymbolLevels(True)
+
         if renderer is not None:
             self.layer.setRenderer(renderer)
             self.layer.triggerRepaint()
@@ -513,9 +672,32 @@ class LayersColoring:
                 layer_info['column'] = (
                     layer_info['column'].replace('yyyy', year)
                 )
-            targetlayer = (
-                QgsProject.instance().mapLayersByName(layer_info['name'])[0]
-            )
+
+            # 誘導区域レイヤが存在せず、かつtype_id=31（居住誘導区域）の場合、仮想居住誘導区域を使用
+            layer_name = layer_info['name']
+            layers = QgsProject.instance().mapLayersByName(layer_name)
+
+            if not layers and layer_name == '誘導区域':
+                is_residential_induction = False
+                for data in layer_info.get('data', []):
+                    if data.get('label_name') == '居住誘導区域' and data.get('render', 'true') == 'true':
+                        is_residential_induction = True
+                        break
+
+                if is_residential_induction:
+                    layers = QgsProject.instance().mapLayersByName('仮想居住誘導区域')
+                    if layers:
+                        print("誘導区域レイヤが見つからないため、仮想居住誘導区域を使用します")
+                        layer_info['name'] = '仮想居住誘導区域'
+                        for data in layer_info.get('data', []):
+                            if data.get('label_name') == '居住誘導区域':
+                                data['label_name'] = '仮想居住誘導区域'
+
+            if not layers:
+                print(f"レイヤーが見つかりません: {layer_name}")
+                continue
+
+            targetlayer = layers[0]
             self.iface.setActiveLayer(targetlayer)
             self.layer = self.iface.activeLayer()
             QgsProject.instance().layerTreeRoot().findLayer(
@@ -526,15 +708,19 @@ class LayersColoring:
                 print("Layer not found")
                 continue
 
+            # QML処理部分の修正（coloringメソッド内）
             if self.layer.name() == layer_info['name']:
-                if layer_info['type'] == 'categorized':
-                    self.apply_categorized_style(layer_info)
-                elif layer_info['type'] == 'graduated':
-                    self.apply_graduated_style(layer_info)
-                elif layer_info['type'] == 'ruled':
-                    self.apply_ruled_style(layer_info)
-                elif layer_info['type'] == 'single':
-                    self.apply_single_style(layer_info)
+                qml_applied = False
+
+                # QMLファイル検索・適用を試行
+                new_structure_qml_path = self.construct_qml_path_from_structure(layer_info, item_val)
+                if new_structure_qml_path:
+                    qml_applied = self.apply_qml_style(new_structure_qml_path, year)
+
+                # QMLファイルが見つからない、または適用に失敗した場合はXMLベースのスタイルにフォールバック
+                if not qml_applied:
+                    print(f"QMLファイルが見つからないため、XMLベースのスタイルを適用: {layer_info['name']}")
+                    self._apply_xml_based_style(layer_info)
 
             if layer_info['scale-visibility'] == 'true':
                 self.layer.setScaleBasedVisibility(True)
@@ -576,3 +762,99 @@ class LayersColoring:
             else:
                 layer_tree.insertChildNode(0, node_clone)
             layer_tree.removeChildNode(target_node)
+
+    def apply_qml_style(self, qml_path, year):
+        """
+        QMLファイルからスタイルを適用する関数
+
+        :param qml_path: QMLファイルのパス
+        :type qml_path: str
+
+        :return: スタイル適用の成功/失敗
+        :rtype: bool
+        """
+        if not qml_path:
+            return False
+
+        original_qml_path = qml_path
+
+        try:
+            # QMLファイルを動的に書き換え
+            tmp_qml_path = self._replace_year_in_qml(qml_path, year)
+            qml_path = tmp_qml_path
+
+            # QMLファイルからスタイルを読み込み
+            result = self.layer.loadNamedStyle(qml_path)
+
+            if result[1]:  # 成功した場合
+                self.layer.triggerRepaint()
+                print(f"QMLスタイルを適用しました: {original_qml_path}")
+                return True
+            else:
+                print(f"QMLスタイルの適用に失敗しました: {result[0]}")
+                return False
+
+        except Exception as e:
+            print(f"QMLスタイル適用中にエラーが発生しました: {str(e)}")
+            return False
+
+        finally:
+            # 一時ファイルを削除
+            if tmp_qml_path and os.path.exists(tmp_qml_path):
+                try:
+                    os.remove(tmp_qml_path)
+                except Exception as e:
+                    print(f"一時ファイル削除エラー: {e}")
+
+    def _replace_year_in_qml(self, qml_path, year):
+        """
+        一時ファイルを使用して、QMLファイル内のattr属性の年次部分を置換
+
+        :param qml_path: 元のQMLファイルパス
+        :rtype: str
+        :param year: 置換する年次
+        :rtype: str
+
+        :return: 一時QMLファイルのパス
+        :rtype: str
+        """
+        # QMLファイルを読み込み
+        with open(qml_path, 'r', encoding='utf-8') as qml_file:
+            qml_content = qml_file.read()
+
+        # 年次を置換
+        qml_content = re.sub(
+            r'(attr="[^"]*?)_(\d{4})(")', # "_年次"のパターン
+            f'\\g<1>_{year}\\g<3>',
+            qml_content
+        )
+        qml_content = re.sub(
+            r'(attr=")(\d{4})_([^"]*?")', # "年次_"のパターン
+            f'\\g<1>{year}_\\g<3>',
+            qml_content
+        )
+
+        # 一時ファイルに保存
+        with tempfile.NamedTemporaryFile(
+            mode='w',
+            suffix='.qml',
+            delete=False,
+            encoding='utf-8'
+        ) as tmp_file:
+            tmp_file.write(qml_content)
+            tmp_qml_path = tmp_file.name
+
+        return tmp_qml_path
+
+    def _apply_xml_based_style(self, layer_info):
+        """
+        XMLベースのスタイル適用（従来の処理）
+        """
+        if layer_info['type'] == 'categorized':
+            self.apply_categorized_style(layer_info)
+        elif layer_info['type'] == 'graduated':
+            self.apply_graduated_style(layer_info)
+        elif layer_info['type'] == 'ruled':
+            self.apply_ruled_style(layer_info)
+        elif layer_info['type'] == 'single':
+            self.apply_single_style(layer_info)

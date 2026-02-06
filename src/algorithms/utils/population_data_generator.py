@@ -29,9 +29,9 @@ from ...models.population import PopulationModel
 
 class PopulationDataGenerator:
     """人口データ取り込み・作成"""
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         # GeoPackageマネージャーを初期化
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
         # インプットデータパス
         self.base_path = base_path
 
@@ -44,8 +44,8 @@ class PopulationDataGenerator:
     def load_population_meshes(self):
         """人口データ・メッシュデータ読み込み"""
         try:
-            # base_path 配下の「250mメッシュ」フォルダを再帰的に探索してShapefileを収集
-            mesh_folder = os.path.join(self.base_path, "250mメッシュ")
+            # base_path 配下の「10_250mメッシュ」フォルダを再帰的に探索してShapefileを収集
+            mesh_folder = os.path.join(self.base_path, "10_250mメッシュ")
             shp_files = self._get_shapefiles(mesh_folder)
 
             if not shp_files:
@@ -97,7 +97,7 @@ class PopulationDataGenerator:
             layer = self.__extract(layer, zones_layer)
 
             # 人口データを追加
-            population_folder = os.path.join(self.base_path, "250mメッシュ人口")
+            population_folder = os.path.join(self.base_path, "11_250mメッシュ人口")
             population_data = self.collect_population_data(population_folder)
             layer = self.add_population_data(layer, population_data)
 
@@ -155,8 +155,8 @@ class PopulationDataGenerator:
                     "GeoPackageへの population_target_settings レイヤ追加に失敗しました。"
                 )
 
-            # 将来推定人口データを読み込み
-            future_population_layer = self.load_future_population()
+            # 将来推定人口データを読み込み（zonesで絞り込み）
+            future_population_layer = self.load_future_population(zones_layer)
             # 将来推定人口データをメッシュデータに付与
             self.add_future_population_data(layer, future_population_layer)
 
@@ -185,12 +185,12 @@ class PopulationDataGenerator:
         except Exception as e:
             # エラーメッセージをログに記録
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
 
-            return False
+            raise e
 
     def _get_shapefiles(self, directory):
         """指定されたディレクトリ配下のすべてのShapefile (.shp) を再帰的に取得する"""
@@ -398,12 +398,12 @@ class PopulationDataGenerator:
 
         return result['OUTPUT']
 
-    def load_future_population(self):
+    def load_future_population(self, zones_layer=None):
         """将来人口データ読み込み"""
         try:
-            # base_path配下の「500mメッシュ別将来人口/H30国政局推計」フォルダを再帰的に探索してShapefileを収集
+            # base_path配下の「12_500mメッシュ別将来人口」フォルダを再帰的に探索してShapefileを収集
             future_population_folder = os.path.join(
-                self.base_path, "500mメッシュ別将来人口", "H30国政局推計"
+                self.base_path, "12_500mメッシュ別将来人口"
             )
             shp_files = self._get_shapefiles(future_population_folder)
 
@@ -432,6 +432,16 @@ class PopulationDataGenerator:
             # レイヤをマージ
             merged_layer = self.merge_layers(layers)
 
+            # zones_layerが指定されている場合、zonesの範囲で絞り込む
+            if zones_layer:
+                merged_layer = self.__extract(merged_layer, zones_layer)
+                msg = self.tr("Future population layer filtered by zones.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+
             # マージしたレイヤをGeoPackageに保存
             if not self.gpkg_manager.add_layer(
                 merged_layer, "future_population", "将来推計人口メッシュ"
@@ -452,7 +462,7 @@ class PopulationDataGenerator:
         except Exception as e:
             # エラーメッセージをログに記録
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -475,6 +485,35 @@ class PopulationDataGenerator:
         """将来推定人口データを250mメッシュレイヤに追加する"""
         try:
             provider = layer.dataProvider()
+            
+            # メッシュIDをキーとした辞書を事前に作成
+            # 500mメッシュ（前8桁）ごとにグループ化
+            QgsMessageLog.logMessage(
+                self.tr("Creating mesh ID index for fast lookup..."),
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            mesh_feature_dict = {}  # 250mメッシュIDをキーとする辞書
+            mesh_500m_dict = {}  # 500mメッシュID（前8桁）をキーとする辞書
+            
+            for feature in layer.getFeatures():
+                mesh_id = (
+                    str(feature["mesh1_id"]) + 
+                    str(feature["mesh2_id"]) + 
+                    str(feature["mesh3_id"]) + 
+                    str(feature["mesh4_id"])
+                )
+                
+                # 250mメッシュ辞書に追加
+                if mesh_id not in mesh_feature_dict:
+                    mesh_feature_dict[mesh_id] = []
+                mesh_feature_dict[mesh_id].append(feature)
+                
+                # 250mメッシュ辞書に追加（前9桁をキーとして: mesh1~mesh4）
+                mesh_500m_id = mesh_id[:9]
+                if mesh_500m_id not in mesh_500m_dict:
+                    mesh_500m_dict[mesh_500m_id] = []
+                mesh_500m_dict[mesh_500m_id].append(feature)
 
             population_target_settings_layer = self.gpkg_manager.load_layer(
                 'population_target_settings', None, withload_project=False
@@ -488,16 +527,16 @@ class PopulationDataGenerator:
 
             future_attributes = [
                 'PTN',
-                'PT0',
-                'PT1',
-                'PT2',
-                'PT3',
-                'PT4',
-                'PT5',
-                'PT6',
-                'PT7',
-                'PT8',
-                'PT9',
+                'PT00',
+                'PT01',
+                'PT02',
+                'PT03',
+                'PT04',
+                'PT05',
+                'PT06',
+                'PT07',
+                'PT08',
+                'PT09',
                 'PT10',
                 'PT11',
                 'PT12',
@@ -508,6 +547,7 @@ class PopulationDataGenerator:
                 'PT17',
                 'PT18',
                 'PT19',
+                'PT20',
                 'PTA',
                 'PTB',
                 'PTC',
@@ -530,19 +570,21 @@ class PopulationDataGenerator:
             # フィールド追加更新
             layer.updateFields()
 
-            # 空間インデックスを作成（250mメッシュレイヤに対して）
-            QgsSpatialIndex(
-                layer.getFeatures()
-            )  # 空間インデックスの作成
-
             # 最新年度の population キー
             latest_year = max(PopulationModel.year_mappings.keys())
 
-            count = 0
-            commit_count = 100
-            edit_count = 0
-            layer.startEditing()
+            # バッチ処理用の準備
             attribute_changes = {}
+            processed_count = 0
+            matched_count = 0
+            skipped_count = 0
+            total_features = future_population_layer.featureCount()
+            
+            QgsMessageLog.logMessage(
+                self.tr("Processing %1 future population features...").replace("%1", str(total_features)),
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
 
             for future_feature in future_population_layer.getFeatures():
                 if self.check_canceled():
@@ -550,21 +592,22 @@ class PopulationDataGenerator:
 
                 future_mesh_id = future_feature["MESH_ID"]
 
-                # フィルタ式を使用して該当するフィーチャを取得
-                query = (
-                    f'"mesh1_id" || "mesh2_id" || "mesh3_id" || "mesh4_id" = '
-                    f"'{future_mesh_id}'"
-                )
-
-                matching_features = list(
-                    layer.getFeatures(
-                        QgsFeatureRequest().setFilterExpression(query)
-                    )
-                )  # ここでリスト化
+                # 250mメッシュIDに対応する250mメッシュを検索
+                prefix = str(future_mesh_id)
+                matching_features = mesh_500m_dict.get(prefix, [])
 
                 # 該当がない場合はスキップ
                 if not matching_features:
-                    count += 1
+                    processed_count += 1
+                    skipped_count += 1
+                    if processed_count % 1000 == 0:
+                        QgsMessageLog.logMessage(
+                            self.tr("Processed %1/%2 features (matched: %3, skipped: %4)...").replace("%1", str(processed_count)).replace("%2", str(total_features)).replace("%3", str(matched_count)).replace("%4", str(skipped_count)),
+                            self.tr("Plugin"),
+                            Qgis.Info,
+                        )
+                        QApplication.processEvents()
+                    continue
 
                 total_population = 0
                 known_population_map = []
@@ -612,13 +655,15 @@ class PopulationDataGenerator:
                                         }
                                     )
 
-                    count += 1
-                    if count % commit_count == 0 and edit_count > 0:
-                        provider.changeAttributeValues(attribute_changes)
-                        layer.commitChanges()  # 現在の変更を保存
-                        layer.startEditing()  # 再度編集モードを開始
-                        edit_count = 0
-                        attribute_changes = {}
+                    processed_count += 1
+                    matched_count += 1
+                    if processed_count % 1000 == 0:
+                        QgsMessageLog.logMessage(
+                            self.tr("Processed %1/%2 features (matched: %3, skipped: %4)...").replace("%1", str(processed_count)).replace("%2", str(total_features)).replace("%3", str(matched_count)).replace("%4", str(skipped_count)),
+                            self.tr("Plugin"),
+                            Qgis.Info,
+                        )
+                        QApplication.processEvents()
                     continue
 
                 # 部分的に人口データがある場合、既知のデータで按分し、残りは均等に分割
@@ -652,7 +697,6 @@ class PopulationDataGenerator:
                                     remaining_value < 0
                                 ):  # remaining_value が負の場合の処理
                                     remaining_value = 0
-                                edit_count += 1
 
                             # 不明なフィーチャに0を割り当てる
                             for unknown_feature in unknown_features:
@@ -665,34 +709,55 @@ class PopulationDataGenerator:
                                         ): 0
                                     }
                                 )
-                                edit_count += 1
 
-                count += 1
-                if count % commit_count == 0 and edit_count > 0:
-                    provider.changeAttributeValues(attribute_changes)
-                    layer.commitChanges()  # 現在の変更を保存
-                    layer.startEditing()  # 再度編集モードを開始
-                    edit_count = 0
-                    attribute_changes = {}
+                processed_count += 1
+                matched_count += 1
+                if processed_count % 1000 == 0:
+                    QgsMessageLog.logMessage(
+                        self.tr("Processed %1/%2 features (matched: %3, skipped: %4)...").replace("%1", str(processed_count)).replace("%2", str(total_features)).replace("%3", str(matched_count)).replace("%4", str(skipped_count)),
+                        self.tr("Plugin"),
+                        Qgis.Info,
+                    )
+                    QApplication.processEvents()
 
-            # 最後のコミット
-            provider.changeAttributeValues(attribute_changes)
-            layer.commitChanges()
-
-            msg = self.tr(
-                "Adding future estimated population data has been "
-                "completed."
-            )
+            # 処理結果のサマリーをログ出力
             QgsMessageLog.logMessage(
-                msg,
+                self.tr("Processing completed: Total=%1, Matched=%2, Skipped=%3").replace("%1", str(total_features)).replace("%2", str(matched_count)).replace("%3", str(skipped_count)),
                 self.tr("Plugin"),
                 Qgis.Info,
             )
+
+            # 一括でコミット
+            QgsMessageLog.logMessage(
+                self.tr("Applying changes to layer..."),
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            
+            if attribute_changes:
+                layer.startEditing()
+                provider.changeAttributeValues(attribute_changes)
+                layer.commitChanges()
+                
+                msg = self.tr(
+                    "Adding future estimated population data has been completed. Updated %1 features."
+                ).replace("%1", str(len(attribute_changes)))
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+            else:
+                QgsMessageLog.logMessage(
+                    self.tr("Warning: No features were updated with future population data"),
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
             QApplication.processEvents()
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -840,7 +905,7 @@ class PopulationDataGenerator:
         except Exception as e:
             layer.rollBack()
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -874,3 +939,150 @@ class PopulationDataGenerator:
                     return encoding
             except UnicodeDecodeError:
                 continue
+
+    def _extract_year_from_path(self, shp_path, base_folder):
+        """
+        SHPファイルのパスから年度情報を抽出する
+        base_folder（27_人口集中地区）とSHPファイルの間にある「YYYY年」形式のフォルダ名から年度を取得
+        """
+        # SHPファイルのディレクトリパスを取得
+        shp_dir = os.path.dirname(shp_path)
+
+        # base_folderからの相対パス部分を取得
+        if shp_dir.startswith(base_folder):
+            relative_path = shp_dir[len(base_folder):]
+            # パス区切り文字で分割
+            path_parts = relative_path.split(os.sep)
+
+            # 「YYYY年」形式のフォルダ名を検索
+            year_pattern = re.compile(r'^(\d{4})年$')
+            for part in path_parts:
+                match = year_pattern.match(part)
+                if match:
+                    return match.group(1)  # YYYY部分を返す
+
+        return None  # 年度フォルダが見つからない場合
+
+    def load_did_data(self):
+        """DID（人口集中地区）データ読み込み"""
+        try:
+            # base_path配下の「27_人口集中地区」フォルダを再帰的に探索してShapefileを収集
+            did_folder = os.path.join(self.base_path, "27_人口集中地区")
+            shp_files = self._get_shapefiles(did_folder)
+
+            if not shp_files:
+                msg = self.tr("人口集中地区のShapefileが見つかりません。スキップします。")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                return True  # 人口集中地区データがなくても処理は続行
+
+            # レイヤリストを作成
+            layers = []
+            for shp_file in shp_files:
+                if self.check_canceled():
+                    return  # キャンセルチェック
+                # Shapefileロード（EPSG:6668で読み込み）
+                layer = QgsVectorLayer(
+                    shp_file, os.path.basename(shp_file), "ogr"
+                )
+                if not layer.isValid():
+                    raise Exception(
+                        f"Shapefileレイヤの読み込みに失敗しました: {shp_file}"
+                    )
+
+                # CRSをEPSG:6668（JGD2011地理座標系）に設定
+                from qgis.core import QgsCoordinateReferenceSystem
+                layer.setCrs(QgsCoordinateReferenceSystem("EPSG:6668"))
+
+                # パスから年度情報を抽出
+                year_value = self._extract_year_from_path(shp_file, did_folder)
+
+                # year属性を追加するためにメモリレイヤにコピー
+                # 元のレイヤの属性を取得
+                original_fields = layer.fields()
+
+                # 新しいフィールドリストを作成（year属性を追加）
+                new_fields = QgsField("year", QVariant.Int)
+
+                # メモリレイヤを作成
+                geom_type = layer.geometryType()
+                geom_type_str = {0: "Point", 1: "LineString", 2: "Polygon", 3: "MultiPoint", 4: "MultiLineString", 5: "MultiPolygon"}
+                # MultiPolygonかPolygonかを判定
+                wkb_type = layer.wkbType()
+                if wkb_type in (6, 3006):  # MultiPolygon, MultiPolygonZ
+                    geom_str = "MultiPolygon"
+                elif wkb_type in (3, 1003):  # Polygon, PolygonZ
+                    geom_str = "Polygon"
+                else:
+                    geom_str = geom_type_str.get(geom_type, "Polygon")
+
+                crs_str = layer.crs().authid()
+                memory_layer = QgsVectorLayer(
+                    f"{geom_str}?crs={crs_str}",
+                    os.path.basename(shp_file),
+                    "memory"
+                )
+                provider = memory_layer.dataProvider()
+
+                # 元のフィールドを追加
+                provider.addAttributes(original_fields.toList())
+                # year属性を追加
+                provider.addAttributes([new_fields])
+                memory_layer.updateFields()
+
+                # フィーチャをコピーしてyear属性を設定
+                new_features = []
+                for feature in layer.getFeatures():
+                    new_feature = QgsFeature(memory_layer.fields())
+                    new_feature.setGeometry(feature.geometry())
+                    # 元の属性をコピー
+                    for field in original_fields:
+                        new_feature.setAttribute(field.name(), feature[field.name()])
+                    # year属性を設定（年度がなければNULL）
+                    new_feature.setAttribute("year", int(year_value) if year_value else None)
+                    new_features.append(new_feature)
+
+                provider.addFeatures(new_features)
+
+                # レイヤをリストに追加
+                layers.append(memory_layer)
+
+                # ログ出力
+                year_info = year_value if year_value else "なし"
+                QgsMessageLog.logMessage(
+                    f"人口集中地区SHP読み込み: {shp_file}, 年度: {year_info}",
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+
+            # レイヤをマージ
+            merged_layer = self.merge_layers(layers)
+
+            # マージしたレイヤをGeoPackageに保存
+            if not self.gpkg_manager.add_layer(
+                merged_layer, "did", "人口集中地区"
+            ):
+                raise Exception(self.tr("Failed to add DID layer to GeoPackage."))
+
+            data_name = self.tr("人口集中地区")
+            msg = self.tr(
+                "%1 data generation completed."
+            ).replace("%1", data_name)
+            QgsMessageLog.logMessage(
+                msg,
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            return merged_layer
+
+        except Exception as e:
+            # エラーメッセージをログに記録
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            return False

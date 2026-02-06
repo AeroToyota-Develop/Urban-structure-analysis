@@ -22,12 +22,12 @@ from .gpkg_manager import GpkgManager
 
 class DisasterPreventionMetricCalculator:
     """防災関連評価指標算出機能"""
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         self.base_path = base_path
 
         self.check_canceled = check_canceled_callback
 
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -48,85 +48,85 @@ class DisasterPreventionMetricCalculator:
             hazard_area_l2_layer = self.gpkg_manager.load_layer(
                 'hazard_area_maximum_scales', None, withload_project=False
             )
-            # 土砂災害
-            hazard_area_landslides_layer = self.gpkg_manager.load_layer(
-                'hazard_area_landslides', None, withload_project=False
-            )
-            # 氾濫流
-            hazard_area_floodplains_layer = self.gpkg_manager.load_layer(
-                'hazard_area_floodplains', None, withload_project=False
-            )
             # 津波
             hazard_area_tsunamis_layer = self.gpkg_manager.load_layer(
                 'hazard_area_tsunamis', None, withload_project=False
             )
-            # 高潮
-            hazard_area_storm_surges_layer = self.gpkg_manager.load_layer(
-                'hazard_area_storm_surges', None, withload_project=False
-            )
-            # 避難施設バッファ
-            shelter_buffers_layer = self.gpkg_manager.load_layer(
-                'shelter_buffers', None, withload_project=False
+            # 行政区域
+            zones_layer = self.gpkg_manager.load_layer(
+                'zones', None, withload_project=False
             )
 
             if not buildings_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
-                                .replace("%1", "buildings_layer"))
+                                .replace("%1", "buildings"))
 
-            if not hazard_area_l1_layer:
+            if not zones_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
-                    .replace("%1", "hazard_area_planned_scales"))
+                    .replace("%1", "zones"))
 
-            if not hazard_area_l2_layer:
-                raise Exception(self.tr("The %1 layer was not found.")
-                    .replace("%1", "hazard_area_maximum_scales"))
+            # is_target=1のzonesを取得してフィルタリング用のレイヤを作成
+            target_zones_layer = None
+            if zones_layer:
+                target_zones_layer = QgsVectorLayer(
+                    "Polygon?crs=" + zones_layer.crs().authid(),
+                    "target_zones",
+                    "memory",
+                )
+                target_zones_data = target_zones_layer.dataProvider()
+                target_zones_data.addAttributes(zones_layer.fields())
+                target_zones_layer.updateFields()
+                
+                target_zones_features = []
+                for zone_feature in zones_layer.getFeatures():
+                    if zone_feature["is_target"] == 1:
+                        target_zones_features.append(zone_feature)
+                
+                if target_zones_features:
+                    target_zones_data.addFeatures(target_zones_features)
+                    target_zones_layer.updateExtents()
+                else:
+                    target_zones_layer = None
 
-            if not hazard_area_landslides_layer:
-                raise Exception(self.tr("The %1 layer was not found.")
-                                .replace("%1", "hazard_area_landslides"))
+            # target_zones_layerがない場合は集計を行わない
+            if not target_zones_layer:
+                # 空の結果を返す
+                self.export(
+                    self.base_path + '\\IF103_防災関連評価指標ファイル.csv',
+                    []
+                )
+                return
 
-            if not hazard_area_floodplains_layer:
-                raise Exception(self.tr("The %1 layer was not found.")
-                                .replace("%1", "hazard_area_floodplains"))
-
-            if not hazard_area_tsunamis_layer:
-                raise Exception(self.tr("The %1 layer was not found.")
-                                .replace("%1", "hazard_area_tsunamis"))
-
-            if not hazard_area_storm_surges_layer:
-                raise Exception(self.tr("The %1 layer was not found.")
-                    .replace("%1", "hazard_area_storm_surges"))
-
-            if not shelter_buffers_layer:
-                raise Exception(self.tr("The %1 layer was not found.")
-                                .replace("%1", "shelter_buffers"))
-
-            centroid_layer = QgsVectorLayer(
-                "Point?crs=" + buildings_layer.crs().authid(),
-                "tmp_building_centroids",
-                "memory",
+            # 建物の重心を計算
+            centroids_result = processing.run(
+                "native:centroids",
+                {
+                    'INPUT': buildings_layer,
+                    'ALL_PARTS': False,
+                    'OUTPUT': 'memory:'
+                }
             )
-            centroid_layer_data = centroid_layer.dataProvider()
+            centroids_all = centroids_result['OUTPUT']
 
-            # 元の建物レイヤから属性をコピー
-            centroid_layer_data.addAttributes(buildings_layer.fields())
-            centroid_layer.updateFields()
-
-            # 建物の重心を計算して一時レイヤに追加
-            centroid_features = []
-            for building_feature in buildings_layer.getFeatures():
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                centroid_geom = building_feature.geometry().centroid()
-                new_feature = QgsFeature()
-                new_feature.setGeometry(centroid_geom)
-                new_feature.setAttributes(
-                    building_feature.attributes()
-                )  # 元の属性をコピー
-                centroid_features.append(new_feature)
-
-            centroid_layer_data.addFeatures(centroid_features)
-            centroid_layer.updateExtents()
+            # target_zones内の重心のみを抽出
+            if target_zones_layer and target_zones_layer.featureCount() > 0:
+                joined_result = processing.run(
+                    "native:joinattributesbylocation",
+                    {
+                        'INPUT': centroids_all,
+                        'JOIN': target_zones_layer,
+                        'PREDICATE': [5],  # within
+                        'JOIN_FIELDS': [],  # フィールド結合は不要
+                        'METHOD': 0,
+                        'DISCARD_NONMATCHING': True,  # マッチしないものは除外
+                        'PREFIX': '',
+                        'OUTPUT': 'memory:'
+                    }
+                )
+                centroid_layer = joined_result['OUTPUT']
+            else:
+                # target_zonesがない場合は全重心を使用
+                centroid_layer = centroids_all
 
             # 空間インデックス作成
             processing.run(
@@ -139,32 +139,53 @@ class DisasterPreventionMetricCalculator:
             if not centroid_layer:
                 raise Exception(self.tr("Failed to add layer to GeoPackage."))
 
-            # 浸水以外のハザード区域のポリゴンをマージ
-            merged_hazard_result = processing.run(
-                "native:mergevectorlayers",
-                {
-                    'LAYERS': [
-                        hazard_area_landslides_layer,
-                        hazard_area_floodplains_layer,
-                        hazard_area_tsunamis_layer,
-                        hazard_area_storm_surges_layer,
-                    ],
-                    'CRS': centroid_layer.crs(),
-                    'OUTPUT': 'memory:merged_hazard_area',
-                },
-            )
+            # 各ハザードエリアと行政区域の交差処理
+            # target_zones_layerと交差するハザードエリアのみを抽出
+            
+            # L1ハザードエリア（計画規模）の集計対象の行政区域でフィルタ抽出
+            hazard_area_l1_constrained = None
+            if hazard_area_l1_layer:
+                l1_constrained_result = processing.run(
+                    "native:extractbylocation",
+                    {
+                        'INPUT': hazard_area_l1_layer,
+                        'INTERSECT': target_zones_layer,
+                        'PREDICATE': [0],  # intersect
+                        'OUTPUT': 'TEMPORARY_OUTPUT',
+                    },
+                )
+                hazard_area_l1_constrained = l1_constrained_result['OUTPUT']
+            
+            # L2ハザードエリア（想定最大規模）の集計対象の行政区域でフィルタ抽出
+            hazard_area_l2_constrained = None
+            if hazard_area_l2_layer:
+                l2_constrained_result = processing.run(
+                    "native:extractbylocation",
+                    {
+                        'INPUT': hazard_area_l2_layer,
+                        'INTERSECT': target_zones_layer,
+                        'PREDICATE': [0],  # intersect
+                        'OUTPUT': 'TEMPORARY_OUTPUT',
+                    },
+                )
+                hazard_area_l2_constrained = l2_constrained_result['OUTPUT']
+            
+            # 津波ハザードエリアの集計対象の行政区域でフィルタ抽出
+            hazard_area_tsunami_constrained = None
+            if hazard_area_tsunamis_layer:
+                tsunami_constrained_result = processing.run(
+                    "native:extractbylocation",
+                    {
+                        'INPUT': hazard_area_tsunamis_layer,
+                        'INTERSECT': target_zones_layer,
+                        'PREDICATE': [0],  # intersect
+                        'OUTPUT': 'TEMPORARY_OUTPUT',
+                    },
+                )
+                hazard_area_tsunami_constrained = tsunami_constrained_result['OUTPUT']
 
             if self.check_canceled():
                 return  # キャンセルチェック
-
-            hazard_area_other_layer = merged_hazard_result['OUTPUT']
-
-            del (
-                hazard_area_landslides_layer,
-                hazard_area_floodplains_layer,
-                hazard_area_tsunamis_layer,
-                hazard_area_storm_surges_layer,
-            )
 
             # 属性名を取得
             fields = buildings_layer.fields()
@@ -184,243 +205,78 @@ class DisasterPreventionMetricCalculator:
             # データリストを作成
             data_list = []
 
-            # 空間インデックス作成（浸水以外）
-            processing.run(
-                "native:createspatialindex", {'INPUT': hazard_area_other_layer}
-            )
-
-            # 空間インデックス作成（避難所）
-            processing.run(
-                "native:createspatialindex", {'INPUT': shelter_buffers_layer}
-            )
-
-            # 空間インデックス作成（L1）
-            processing.run(
-                "native:createspatialindex", {'INPUT': hazard_area_l1_layer}
-            )
-
-            hazard_area_l1_layer = self.gpkg_manager.add_layer(
-                hazard_area_l1_layer, "tmp_hazard_area_l1_layer", None, False
-            )
-            if not hazard_area_l1_layer:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
+            # 各ハザードエリア内の建物を取得（深度別フィルタリング）
+            if self.check_canceled():
+                return  # キャンセルチェック
+            
+            # L1範囲の建物を取得（全レベル）
+            l1_buildings = None
+            if hazard_area_l1_constrained:
+                l1_buildings_result = processing.run(
+                    "native:joinattributesbylocation",
+                    {
+                        'INPUT': centroid_layer,
+                        'JOIN': hazard_area_l1_constrained,
+                        'PREDICATE': [5],  # overlap
+                        'JOIN_FIELDS': ['rank'],
+                        'METHOD': 0,
+                        'DISCARD_NONMATCHING': True,
+                        'PREFIX': 'l1_',
+                        'OUTPUT': 'TEMPORARY_OUTPUT',
+                    },
+                )
+                l1_buildings = l1_buildings_result['OUTPUT']
 
             if self.check_canceled():
                 return  # キャンセルチェック
-            # L1範囲の建物を取得
-            result = processing.run(
-                "native:joinattributesbylocation",
-                {
-                    'INPUT': centroid_layer,
-                    'JOIN': hazard_area_l1_layer,
-                    'PREDICATE': [5],  # overlap
-                    'JOIN_FIELDS': [],
-                    'METHOD': 0,
-                    'OUTPUT': 'TEMPORARY_OUTPUT',
-                    'DISCARD_NONMATCHING': True,
-                    'PREFIX': 'hazard_area_l1_',
-                },
-            )
-
-            l1_buildings = self.gpkg_manager.add_layer(
-                result['OUTPUT'], "tmp_l1_buildings", None, False
-            )
-            if not l1_buildings:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
+            
+            # L2範囲の建物を取得（全レベル）
+            l2_buildings = None
+            if hazard_area_l2_constrained:
+                l2_buildings_result = processing.run(
+                    "native:joinattributesbylocation",
+                    {
+                        'INPUT': centroid_layer,
+                        'JOIN': hazard_area_l2_constrained,
+                        'PREDICATE': [5],  # overlap
+                        'JOIN_FIELDS': ['rank'],
+                        'METHOD': 0,
+                        'DISCARD_NONMATCHING': True,
+                        'PREFIX': 'l2_',
+                        'OUTPUT': 'TEMPORARY_OUTPUT',
+                    },
+                )
+                l2_buildings = l2_buildings_result['OUTPUT']
 
             if self.check_canceled():
                 return  # キャンセルチェック
-            # 空間インデックス作成（L2）
-            processing.run(
-                "native:createspatialindex", {'INPUT': hazard_area_l2_layer}
-            )
+            
+            # 津波範囲の建物を取得（全レベル）
+            tsunami_buildings = None
+            if hazard_area_tsunami_constrained:
+                tsunami_buildings_result = processing.run(
+                    "native:joinattributesbylocation",
+                    {
+                        'INPUT': centroid_layer,
+                        'JOIN': hazard_area_tsunami_constrained,
+                        'PREDICATE': [5],  # overlap
+                        'JOIN_FIELDS': ['rank'],
+                        'METHOD': 0,
+                        'DISCARD_NONMATCHING': True,
+                        'PREFIX': 'tsunami_',
+                        'OUTPUT': 'TEMPORARY_OUTPUT',
+                    },
+                )
+                tsunami_buildings = tsunami_buildings_result['OUTPUT']
 
-            hazard_area_l2_layer = self.gpkg_manager.add_layer(
-                hazard_area_l2_layer, "tmp_hazard_area_l2_layer", None, False
-            )
-            if not hazard_area_l2_layer:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
-
-            if self.check_canceled():
-                return  # キャンセルチェック
-            # L2範囲の建物を取得
-            result = processing.run(
-                "native:joinattributesbylocation",
-                {
-                    'INPUT': centroid_layer,
-                    'JOIN': hazard_area_l2_layer,
-                    'PREDICATE': [5],  # overlap
-                    'JOIN_FIELDS': [],
-                    'METHOD': 0,
-                    'OUTPUT': 'TEMPORARY_OUTPUT',
-                    'DISCARD_NONMATCHING': True,
-                    'PREFIX': 'hazard_area_l2_',
-                },
-            )
-
-            l2_buildings = self.gpkg_manager.add_layer(
-                result['OUTPUT'], "tmp_l2_buildings", None, False
-            )
-            if not l2_buildings:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
-
-            if self.check_canceled():
-                return  # キャンセルチェック
-            # 浸水以外のハザード区域のポリゴンを1件にマージ
-            result = processing.run(
-                "native:dissolve",
-                {
-                    'INPUT': hazard_area_other_layer,
-                    'FIELD': [],  # 全てのフィーチャをマージ
-                    'OUTPUT': 'TEMPORARY_OUTPUT',
-                },
-            )
-
-            hazard_area_other_layer = self.gpkg_manager.add_layer(
-                result['OUTPUT'], "tmp_hazard_area_other_layer", None, False
-            )
-            if not hazard_area_other_layer:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
-
-            if self.check_canceled():
-                return  # キャンセルチェック
-            # 浸水以外のハザード区域内の建物を取得
-            result = processing.run(
-                "native:joinattributesbylocation",
-                {
-                    'INPUT': centroid_layer,
-                    'JOIN': hazard_area_other_layer,
-                    'PREDICATE': [5],  # overlap
-                    'JOIN_FIELDS': [],
-                    'METHOD': 0,
-                    'OUTPUT': 'TEMPORARY_OUTPUT',
-                    'DISCARD_NONMATCHING': True,
-                    'PREFIX': 'other_hazard_',
-                },
-            )
-
-            other_buildings = self.gpkg_manager.add_layer(
-                result['OUTPUT'], "tmp_other_buildings", None, False
-            )
-            if not other_buildings:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
-
-            if self.check_canceled():
-                return  # キャンセルチェック
-            # L1範囲外の建物を選択
-            processing.run(
-                "native:selectbylocation",
-                {
-                    'INPUT': centroid_layer,
-                    'INTERSECT': l1_buildings,
-                    'METHOD': 0,  # Discard matching buildings
-                    'PREDICATE': [2],  # disjoint
-                },
-            )
-
-            # 選択されたフィーチャを一時レイヤとして保存
-            result = processing.run(
-                "native:saveselectedfeatures",
-                {'INPUT': centroid_layer, 'OUTPUT': 'TEMPORARY_OUTPUT'},
-            )
-            safe_buildings = result['OUTPUT']
-
-            # 空間インデックス作成
-            processing.run(
-                "native:createspatialindex", {'INPUT': safe_buildings}
-            )
-
-            if self.check_canceled():
-                return  # キャンセルチェック
-            # L2範囲外の建物を選択
-            processing.run(
-                "native:selectbylocation",
-                {
-                    'INPUT': safe_buildings,  # L1で除外された建物を入力
-                    'INTERSECT': l2_buildings,
-                    'METHOD': 0,  # Discard matching buildings
-                    'PREDICATE': [2],  # disjoint
-                },
-            )
-
-            processing.run(
-                "native:createspatialindex", {'INPUT': safe_buildings}
-            )
-
-            # 再度選択されたフィーチャを保存
-            if self.check_canceled():
-                return  # キャンセルチェック
-            result = processing.run(
-                "native:saveselectedfeatures",
-                {'INPUT': safe_buildings, 'OUTPUT': 'TEMPORARY_OUTPUT'},
-            )
-            safe_buildings = result['OUTPUT']
-
-            processing.run(
-                "native:createspatialindex", {'INPUT': safe_buildings}
-            )
-
-            # 浸水以外のハザード区域外の建物を選択
-            if self.check_canceled():
-                return  # キャンセルチェック
-            processing.run(
-                "native:selectbylocation",
-                {
-                    'INPUT': safe_buildings,  # L2で除外された建物を入力
-                    'INTERSECT': other_buildings,
-                    'METHOD': 0,  # Discard matching buildings
-                    'PREDICATE': [2],  # disjoint
-                },
-            )
-
-            # 最終的に選択されたフィーチャを保存
-            result = processing.run(
-                "native:saveselectedfeatures",
-                {'INPUT': safe_buildings, 'OUTPUT': 'TEMPORARY_OUTPUT'},
-            )
-
-            safe_buildings = self.gpkg_manager.add_layer(
-                result['OUTPUT'], "tmp_safe_buildings", None, False
-            )
-            if not safe_buildings:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
-
-            if self.check_canceled():
-                return  # キャンセルチェック
-            # 避難可能区域の建物を取得
-            result = processing.run(
-                "native:joinattributesbylocation",
-                {
-                    'INPUT': centroid_layer,
-                    'JOIN': shelter_buffers_layer,
-                    'PREDICATE': [5],  # overlap
-                    'JOIN_FIELDS': [],
-                    'METHOD': 1,  # 最初に合致した地物の属性のみ
-                    'DISCARD_NONMATCHING': True,
-                    'PREFIX': 'shelter_buffers_',
-                    'OUTPUT': 'TEMPORARY_OUTPUT',
-                },
-            )
-
-            if self.check_canceled():
-                return  # キャンセルチェック
-            # GeoPackage に保存
-            evacuation_possible_buildings = self.gpkg_manager.add_layer(
-                result['OUTPUT'],
-                "tmp_evacuation_possible_buildings",
-                None,
-                False,
-            )
-            if not evacuation_possible_buildings:
-                raise Exception(self.tr("Failed to add layer to GeoPackage."))
 
             for year in unique_years:
                 if self.check_canceled():
                     return  # キャンセルチェック
                 year_field = f"{year}_population"
 
-                # 総人口を集計
-                total_pop_result = buildings_layer.aggregate(
+                # 総人口を集計（集計対象の行政区域でフィルタ）
+                total_pop_result = centroid_layer.aggregate(
                     QgsAggregateCalculator.Aggregate.Sum,
                     year_field,
                     QgsAggregateCalculator.AggregateParameters(),
@@ -431,89 +287,94 @@ class DisasterPreventionMetricCalculator:
                     else 0
                 )
 
-                # 浸水以外人口
-                sum_result = other_buildings.aggregate(
-                    QgsAggregateCalculator.Aggregate.Sum,
-                    year_field,
-                    QgsAggregateCalculator.AggregateParameters(),
-                )
-                hazard01_area_pop = (
-                    int(sum_result[0]) if sum_result[0] is not None else 0
-                )
+                # L1浸水区域内人口（0.5m以上）rank>=2
+                flood_plan_0p5m_pop = 0
+                flood_plan_3m_pop = 0
+                if l1_buildings:
+                    for feature in l1_buildings.getFeatures():
+                        l1_rank_value = feature['l1_rank']
+                        if l1_rank_value is not None:
+                            try:
+                                rank_int = int(l1_rank_value)
+                                if rank_int >= 2:
+                                    pop_value = feature[year_field]
+                                    if pop_value is not None:
+                                        flood_plan_0p5m_pop += int(pop_value)
+                                
+                                # L1浸水区域内人口（3m以上）rank>=3
+                                if rank_int >= 3:
+                                    pop_value = feature[year_field]
+                                    if pop_value is not None:
+                                        flood_plan_3m_pop += int(pop_value)
+                            except (ValueError, TypeError):
+                                continue
 
-                # L1浸水区域内人口
-                sum_result = l1_buildings.aggregate(
-                    QgsAggregateCalculator.Aggregate.Sum,
-                    year_field,
-                    QgsAggregateCalculator.AggregateParameters(),
-                )
-                hazard02_area_pop = (
-                    int(sum_result[0]) if sum_result[0] is not None else 0
-                )
+                # L2浸水区域内人口（0.5m以上）rank>=2
+                flood_assumed_0p5m_pop = 0
+                flood_assumed_3m_pop = 0
+                if l2_buildings:
+                    for feature in l2_buildings.getFeatures():
+                        l2_rank_value = feature['l2_rank']
+                        if l2_rank_value is not None:
+                            try:
+                                rank_int = int(l2_rank_value)
+                                if rank_int >= 2:
+                                    pop_value = feature[year_field]
+                                    if pop_value is not None:
+                                        flood_assumed_0p5m_pop += int(pop_value)
+                                
+                                # L2浸水区域内人口（3m以上）rank>=3
+                                if rank_int >= 3:
+                                    pop_value = feature[year_field]
+                                    if pop_value is not None:
+                                        flood_assumed_3m_pop += int(pop_value)
+                            except (ValueError, TypeError):
+                                continue
 
-                # L2浸水区域内人口
-                sum_result = l2_buildings.aggregate(
-                    QgsAggregateCalculator.Aggregate.Sum,
-                    year_field,
-                    QgsAggregateCalculator.AggregateParameters(),
-                )
-                hazard03_area_pop = (
-                    int(sum_result[0]) if sum_result[0] is not None else 0
-                )
+                # 津波区域内人口（2m以上）
+                tsunami_2m_pop = 0
+                if tsunami_buildings:
+                    for feature in tsunami_buildings.getFeatures():
+                        rank_value = feature['tsunami_rank']
+                        if rank_value is not None and isinstance(rank_value, str):
+                            try:
+                                # 2.0m以上の条件
+                                if ('2.0m以上' in rank_value or
+                                    '5.0m以上' in rank_value or
+                                    '10.0m以上' in rank_value):
+                                    pop_value = feature[year_field]
+                                    if pop_value is not None:
+                                        tsunami_2m_pop += int(pop_value)
+                            except (ValueError, TypeError):
+                                continue
 
-                # 安全区域人口
-                sum_result = safe_buildings.aggregate(
-                    QgsAggregateCalculator.Aggregate.Sum,
-                    year_field,
-                    QgsAggregateCalculator.AggregateParameters(),
-                )
-                hazard04_area_pop = (
-                    int(sum_result[0]) if sum_result[0] is not None else 0
-                )
-
-                # 浸水以外のハザード区域内人口割合
-                rate_hazard01_area_pop = (
-                    self.round_or_na((hazard01_area_pop / total_pop) * 100, 2)
+                # 各人口割合の計算
+                flood_plan_0p5m_share = (
+                    self.round_or_na(flood_plan_0p5m_pop / total_pop, 3)
                     if total_pop > 0
                     else '―'
                 )
 
-                # L1浸水区域内人口割合
-                rate_hazard02_area_pop = (
-                    self.round_or_na((hazard02_area_pop / total_pop) * 100, 2)
+                flood_plan_3m_share = (
+                    self.round_or_na(flood_plan_3m_pop / total_pop, 3)
                     if total_pop > 0
                     else '―'
                 )
 
-                # L2浸水区域内人口割合
-                rate_hazard03_area_pop = (
-                    self.round_or_na((hazard03_area_pop / total_pop) * 100, 2)
+                flood_assumed_0p5m_share = (
+                    self.round_or_na(flood_assumed_0p5m_pop / total_pop, 3)
                     if total_pop > 0
                     else '―'
                 )
 
-                # 安全区域内人口割合
-                rate_hazard04_area_pop = (
-                    self.round_or_na((hazard04_area_pop / total_pop) * 100, 2)
+                flood_assumed_3m_share = (
+                    self.round_or_na(flood_assumed_3m_pop / total_pop, 3)
                     if total_pop > 0
                     else '―'
                 )
 
-                # 避難施設カバー圏人口
-                sum_result = evacuation_possible_buildings.aggregate(
-                    QgsAggregateCalculator.Aggregate.Sum,
-                    year_field,
-                    QgsAggregateCalculator.AggregateParameters(),
-                )
-                evacuation_facility_pop = (
-                    int(sum_result[0]) if sum_result[0] is not None else 0
-                )
-
-                # 避難施設カバー率
-                rate_evacuation_facility_pop = (
-                    self.round_or_na(
-                        (evacuation_facility_pop / total_pop) * 100, 2
-                    )
+                tsunami_2m_share = (
+                    self.round_or_na(tsunami_2m_pop / total_pop, 3)
                     if total_pop > 0
                     else '―'
                 )
@@ -522,140 +383,92 @@ class DisasterPreventionMetricCalculator:
                 if data_list:
                     previous_year_data = data_list[-1]
 
-                    rate_hazard01_area_pop_change = (
-                        self.round_or_na(
-                            (
-                                (
-                                    rate_hazard01_area_pop
-                                    - previous_year_data[
-                                        'Rate_hazard01_Area_Pop'
-                                    ]
-                                )
-                                / previous_year_data['Rate_hazard01_Area_Pop']
-                            )
-                            * 100,
-                            2,
-                        )
-                        if previous_year_data['Rate_hazard01_Area_Pop'] > 0
+                    flood_plan_0p5m_share_delta = (
+                        self.round_or_na(flood_plan_0p5m_share - previous_year_data['flood_plan_0p5m_inundation_pop_share'], 2)
+                        if isinstance(previous_year_data['flood_plan_0p5m_inundation_pop_share'], (int, float))
+                        and isinstance(flood_plan_0p5m_share, (int, float))
                         else '―'
                     )
 
-                    rate_hazard02_area_pop_change = (
-                        self.round_or_na(
-                            (
-                                (
-                                    rate_hazard02_area_pop
-                                    - previous_year_data[
-                                        'Rate_hazard02_Area_Pop'
-                                    ]
-                                )
-                                / previous_year_data['Rate_hazard02_Area_Pop']
-                            )
-                            * 100,
-                            2,
-                        )
-                        if previous_year_data['Rate_hazard02_Area_Pop'] > 0
+                    flood_plan_3m_share_delta = (
+                        self.round_or_na(flood_plan_3m_share - previous_year_data['flood_plan_3m_inundation_pop_share'], 2)
+                        if isinstance(previous_year_data['flood_plan_3m_inundation_pop_share'], (int, float))
+                        and isinstance(flood_plan_3m_share, (int, float))
                         else '―'
                     )
 
-                    rate_hazard03_area_pop_change = (
-                        self.round_or_na(
-                            (
-                                (
-                                    rate_hazard03_area_pop
-                                    - previous_year_data[
-                                        'Rate_hazard03_Area_Pop'
-                                    ]
-                                )
-                                / previous_year_data['Rate_hazard03_Area_Pop']
-                            )
-                            * 100,
-                            2,
-                        )
-                        if previous_year_data['Rate_hazard03_Area_Pop'] > 0
+                    flood_assumed_0p5m_share_delta = (
+                        self.round_or_na(flood_assumed_0p5m_share - previous_year_data['flood_assumed_0p5m_inundation_pop_share'], 2)
+                        if isinstance(previous_year_data['flood_assumed_0p5m_inundation_pop_share'], (int, float))
+                        and isinstance(flood_assumed_0p5m_share, (int, float))
                         else '―'
                     )
 
-                    rate_hazard04_area_pop_change = (
-                        self.round_or_na(
-                            (
-                                (
-                                    rate_hazard04_area_pop
-                                    - previous_year_data[
-                                        'Rate_hazard04_Area_Pop'
-                                    ]
-                                )
-                                / previous_year_data['Rate_hazard04_Area_Pop']
-                            )
-                            * 100,
-                            2,
-                        )
-                        if previous_year_data['Rate_hazard04_Area_Pop'] > 0
+                    flood_assumed_3m_share_delta = (
+                        self.round_or_na(flood_assumed_3m_share - previous_year_data['flood_assumed_3m_inundation_pop_share'], 2)
+                        if isinstance(previous_year_data['flood_assumed_3m_inundation_pop_share'], (int, float))
+                        and isinstance(flood_assumed_3m_share, (int, float))
                         else '―'
                     )
 
-                    rate_evacuation_facility_pop_change = (
-                        self.round_or_na(
-                            (
-                                (
-                                    rate_evacuation_facility_pop
-                                    - previous_year_data[
-                                        'Rate_Evacuation_Facility_Pop'
-                                    ]
-                                )
-                                / previous_year_data[
-                                    'Rate_Evacuation_Facility_Pop'
-                                ]
-                            )
-                            * 100,
-                            2,
-                        )
-                        if previous_year_data['Rate_Evacuation_Facility_Pop']
-                        > 0
+                    tsunami_2m_share_delta = (
+                        self.round_or_na(tsunami_2m_share - previous_year_data['tsunami_2m_inundation_pop_share'], 2)
+                        if isinstance(previous_year_data['tsunami_2m_inundation_pop_share'], (int, float))
+                        and isinstance(tsunami_2m_share, (int, float))
                         else '―'
                     )
 
                 else:
-                    rate_hazard01_area_pop_change = '―'
-                    rate_hazard02_area_pop_change = '―'
-                    rate_hazard03_area_pop_change = '―'
-                    rate_hazard04_area_pop_change = '―'
-                    rate_evacuation_facility_pop_change = '―'
+                    flood_plan_0p5m_share_delta = '―'
+                    flood_plan_3m_share_delta = '―'
+                    flood_assumed_0p5m_share_delta = '―'
+                    flood_assumed_3m_share_delta = '―'
+                    tsunami_2m_share_delta = '―'
 
                 # データを辞書にまとめる
                 year_data = {
-                    'Year': year,
-                    'Total_Pop': total_pop,
-                    # 浸水以外のハザード区域内人口
-                    'hazard01_Area_Pop': hazard01_area_pop,
-                    # L1浸水区域内人口
-                    'hazard02_Area_Pop': hazard02_area_pop,
-                    # L2浸水区域内人口
-                    'hazard03_Area_Pop': hazard03_area_pop,
-                    # 安全区域内人口
-                    'hazard04_Area_Pop': hazard04_area_pop,
-                    # 浸水以外のハザード区域内人口割合
-                    'Rate_hazard01_Area_Pop': rate_hazard01_area_pop,
-                    # L1浸水区域内人口割合
-                    'Rate_hazard02_Area_Pop': rate_hazard02_area_pop,
-                    # L2浸水区域内人口割合
-                    'Rate_hazard03_Area_Pop': rate_hazard03_area_pop,
-                    # 安全区域内人口割合
-                    'Rate_hazard04_Area_Pop': rate_hazard04_area_pop,
-                    # 浸水以外のハザード区域内人口割合変化率
-                    'Rate_hazard01_Area_Pop_Change': rate_hazard01_area_pop_change,
-                    # L1浸水区域内人口割合変化率
-                    'Rate_hazard02_Area_Pop_Change': rate_hazard02_area_pop_change,
-                    # L2浸水区域内人口割合変化率
-                    'Rate_hazard03_Area_Pop_Change': rate_hazard03_area_pop_change,
-                    # 安全区域内人口割合変化率
-                    'Rate_hazard04_Area_Pop_Change': rate_hazard04_area_pop_change,
-                    # 避難施設カバー圏人口
-                    'Evacuation_Facility_Pop': evacuation_facility_pop,
-                    # 避難施設カバー率
-                    'Rate_Evacuation_Facility_Pop': rate_evacuation_facility_pop,
-                    # 避難施設カバー率の変化
-                    'Rate_Evacuation_Facility_Pop_Change': rate_evacuation_facility_pop_change,
+                    # 年次
+                    'year': year,
+                    # 洪水計画_0.5m以上浸水区域人口割合
+                    'flood_plan_0p5m_inundation_pop_share': flood_plan_0p5m_share,
+                    # 洪水計画_0.5以上浸水区域プロポーション変化
+                    'flood_plan_0p5m_inundation_pop_share_delta': flood_plan_0p5m_share_delta if data_list else '―',
+                    # 全国平均値
+                    'flood_plan_0p5m_inundation_national_avg': '',
+                    # 都道府県平均値
+                    'flood_plan_0p5m_inundation_pref_avg': '',
+                    # 洪水計画_3m以上浸水区域人口割合
+                    'flood_plan_3m_inundation_pop_share': flood_plan_3m_share,
+                    # 洪水計画_3m以上浸水区域プロポーション変化
+                    'flood_plan_3m_inundation_pop_share_delta': flood_plan_3m_share_delta if data_list else '―',
+                    # 全国平均値
+                    'flood_plan_3m_inundation_national_avg': '',
+                    # 都道府県平均値
+                    'flood_plan_3m_inundation_pref_avg': '',
+                    # 洪水想定_0.5m以上浸水区域人口割合
+                    'flood_assumed_0p5m_inundation_pop_share': flood_assumed_0p5m_share,
+                    # 洪水想定_0.5m以上浸水区域プロポーション変化
+                    'flood_assumed_0p5m_inundation_pop_share_delta': flood_assumed_0p5m_share_delta if data_list else '―',
+                    # 全国平均値
+                    'flood_assumed_0p5m_inundation_national_avg': '',
+                    # 都道府県平均値
+                    'flood_assumed_0p5m_inundation_pref_avg': '',
+                    # 洪水想定_3m以上浸水区域人口割合
+                    'flood_assumed_3m_inundation_pop_share': flood_assumed_3m_share,
+                    # 洪水想定_3m以上浸水区域プロポーション変化
+                    'flood_assumed_3m_inundation_pop_share_delta': flood_assumed_3m_share_delta if data_list else '―',
+                    # 全国平均値
+                    'flood_assumed_3m_inundation_national_avg': '',
+                    # 都道府県平均値
+                    'flood_assumed_3m_inundation_pref_avg': '',
+                    # 津波_2m以上浸水区域人口割合
+                    'tsunami_2m_inundation_pop_share': tsunami_2m_share,
+                    # 津波_2m以上浸水区域プロポーション変化
+                    'tsunami_2m_inundation_pop_share_delta': tsunami_2m_share_delta if data_list else '―',
+                    # 全国平均値
+                    'tsunami_2m_inundation_national_avg': '',
+                    # 都道府県平均値
+                    'tsunami_2m_inundation_pref_avg': '',
                 }
 
                 # 辞書をリストに追加
@@ -672,7 +485,7 @@ class DisasterPreventionMetricCalculator:
         except Exception as e:
             # エラーメッセージのログ出力
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -710,7 +523,7 @@ class DisasterPreventionMetricCalculator:
             # エラーメッセージのログ出力
             msg = self.tr(
                 "An error occurred during file export: %1."
-            ).replace("%1", e)
+            ).replace("%1", str(e))
             QgsMessageLog.logMessage(
                 msg,
                 self.tr("Plugin"),

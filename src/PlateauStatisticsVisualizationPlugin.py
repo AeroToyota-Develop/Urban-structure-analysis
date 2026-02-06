@@ -25,13 +25,15 @@ import os.path
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt # pylint: disable=import-error
 from qgis.PyQt.QtGui import QIcon # pylint: disable=import-error
 from qgis.PyQt.QtWidgets import QAction # pylint: disable=import-error
+from qgis.core import QgsApplication
 from .resources import * # pylint: disable=wildcard-import, unused-wildcard-import
 from .PlateauStatisticsVisualizationPlugin_dockwidget import (
     PlateauStatisticsVisualizationPluginDockWidget
 )
+from .processing_provider import PlateauProcessingProvider
 from .functions.create_directory import CreateDirectory
 from .functions.metric_calculation import MetricCalculation
-from .functions.visualization import ControlDock, GraphDock
+from .functions.visualization import ControlDock, GraphDock, MainGraphDock, RevisedAreaGraphDock
 from .functions.output import Output
 
 
@@ -50,7 +52,8 @@ class PlateauStatisticsVisualizationPlugin:
         dockwidget (PlateauStatisticsVisualizationPluginDockWidget):
             プラグインのDockWidget。
         control_dock (ControlDock): 可視化制御のDockWidget。
-        graph_dock (GraphDock): グラフ表示のDockWidget。
+        main_graph_dock (GraphDock): メイングラフ表示のDockWidget。
+        revised_area_graph_dock (GraphDock): 修正区域グラフ表示のDockWidget。
         sub_graph_dock (GraphDock): 比較用グラフ表示のDockWidget。
         control_dock_called (bool): control_dockが呼ばれたかどうかを示すフラグ。
 
@@ -102,7 +105,8 @@ class PlateauStatisticsVisualizationPlugin:
         self.pluginIsActive = False
         self.dockwidget = None
         self.control_dock = None
-        self.graph_dock = None
+        self.main_graph_dock = None
+        self.revised_area_graph_dock = None
         self.sub_graph_dock = None
         self.control_dock_called = False
 
@@ -186,6 +190,10 @@ class PlateauStatisticsVisualizationPlugin:
     def initGui(self):
         """QGIS GUI内でメニューエントリとツールバーアイコンを作成します"""
 
+        # プロセシングプロバイダーを登録
+        self.provider = PlateauProcessingProvider()
+        QgsApplication.processingRegistry().addProvider(self.provider)
+
         icon_path = ':/plugins/PlateauStatisticsVisualizationPlugin/icon.png'
         self.add_action(
             icon_path,
@@ -215,6 +223,10 @@ class PlateauStatisticsVisualizationPlugin:
         """プラグインのメニュー項目とアイコンをQGIS GUIから削除します"""
 
         #print "** UNLOAD PlateauStatisticsVisualizationPlugin"
+
+        # プロセシングプロバイダーを削除
+        if hasattr(self, 'provider'):
+            QgsApplication.processingRegistry().removeProvider(self.provider)
 
         for action in self.actions:
             self.iface.removePluginMenu(
@@ -280,12 +292,22 @@ class PlateauStatisticsVisualizationPlugin:
         else:
             self.control_dock.show()
 
-        if not self.graph_dock:
-            self.graph_dock = GraphDock(self.iface.mainWindow(),
-                                        self.translator)
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.graph_dock)
+        if not self.main_graph_dock:
+            self.main_graph_dock = MainGraphDock(self.iface.mainWindow(),
+                                                 self.translator)
+            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.main_graph_dock)
         else:
-            self.graph_dock.show()
+            self.main_graph_dock.show()
+
+        if not self.revised_area_graph_dock:
+            self.revised_area_graph_dock = RevisedAreaGraphDock(self.iface.mainWindow(),
+                                                               self.translator)
+            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.revised_area_graph_dock)
+            # Tabify the main graph dock and revised area graph dock
+            self.iface.mainWindow().tabifyDockWidget(self.main_graph_dock, self.revised_area_graph_dock)
+            self.main_graph_dock.raise_()
+        else:
+            self.revised_area_graph_dock.show()
 
         if not self.sub_graph_dock:
             self.sub_graph_dock = GraphDock(self.iface.mainWindow(),
@@ -297,13 +319,57 @@ class PlateauStatisticsVisualizationPlugin:
             self.sub_graph_dock.show()
 
         if not self.control_dock_called:
+            print("Debug: Setting up signal connections...")
             self.control_dock.plotSignal.connect(
-                self.graph_dock.update_plots_and_layer_coloring
+                self._update_main_and_revised_graphs
             )
+            print("Debug: Connected plotSignal to _update_main_and_revised_graphs")
             self.control_dock.plotSignal_sub.connect(
                 self.sub_graph_dock.update_plots
             )
+            print("Debug: Connected plotSignal_sub to sub_graph_dock.update_plots")
             self.control_dock_called = True
+
+    def _update_main_and_revised_graphs(self, data_item, year):
+        """メイングラフと修正区域グラフを同時に更新する関数"""
+        print(f"Debug: _update_main_and_revised_graphs called with data_item={data_item}, year={year}")
+        print(f"Debug: main_graph_dock exists: {self.main_graph_dock is not None}")
+        print(f"Debug: revised_area_graph_dock exists: {self.revised_area_graph_dock is not None}")
+
+        # メイングラフのプロット
+        if self.main_graph_dock:
+            print("Debug: Updating main graph dock (plot only)...")
+            try:
+                self.main_graph_dock.update_plots(data_item)
+                print("Debug: Main graph dock plot updated")
+            except Exception as e:
+                print(f"Error: Failed to update main graph dock plot: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # 修正区域グラフのプロット
+        if self.revised_area_graph_dock:
+            print("Debug: Updating revised area graph dock...")
+            try:
+                self.revised_area_graph_dock.update_plots(data_item)
+                print("Debug: Revised area graph dock updated")
+            except Exception as e:
+                print(f"Error: Failed to update revised area graph dock: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("Debug: revised_area_graph_dock is None!")
+
+        # レイヤの色付け
+        if self.main_graph_dock:
+            print("Debug: Updating layer coloring...")
+            try:
+                self.main_graph_dock.layer_coloring.coloring(data_item, year)
+                print("Debug: Layer coloring completed")
+            except Exception as e:
+                print(f"Error: Failed to update layer coloring: {e}")
+                import traceback
+                traceback.print_exc()
 
     def _output(self):
         """データをエクスポートするためのOutputダイアログを開く関数"""

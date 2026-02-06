@@ -24,9 +24,9 @@ from .gpkg_manager import GpkgManager
 
 class FinancialDataGenerator:
     """財政関連データ作成機能"""
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         # GeoPackageマネージャーを初期化
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
         # インプットデータパス
         self.base_path = base_path
 
@@ -39,8 +39,8 @@ class FinancialDataGenerator:
     def create_land_price(self):
         """地価公示作成"""
         try:
-            # base_path 配下の「地価公示」フォルダを再帰的に探索してShapefileを収集
-            induction_area_folder = os.path.join(self.base_path, "地価公示")
+            # base_path 配下の「23_地価公示」フォルダを再帰的に探索してShapefileを収集
+            induction_area_folder = os.path.join(self.base_path, "23_地価公示")
             shp_files = self.__get_shapefiles(induction_area_folder)
 
             # レイヤを格納するリスト
@@ -171,7 +171,7 @@ class FinancialDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                return False
+                raise Exception(msg)
 
             # 複数のレイヤをマージ
             merged_layer = self.__merge_layers(layers)
@@ -187,21 +187,6 @@ class FinancialDataGenerator:
             if not meshes_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "meshes"))
-
-            # データソースと一致するレイヤをレイヤパネルから取得
-            meshes_layer_uri = meshes_layer.dataProvider().dataSourceUri()
-            project = QgsProject.instance()
-
-            # レイヤパネルから一致するレイヤを検索
-            meshes_layer = next(
-                (
-                    layer
-                    for layer in project.mapLayers().values()
-                    if isinstance(layer, QgsVectorLayer)
-                    and layer.dataProvider().dataSourceUri() == meshes_layer_uri
-                ),
-                None,
-            )
 
             # メッシュレイヤに地価公示平均、増減を追加
             self.calculate_average_and_diff(meshes_layer, merged_layer)
@@ -227,11 +212,11 @@ class FinancialDataGenerator:
             return True
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def calculate_average_and_diff(self, meshes_layer, merged_layer):
         """各メッシュ内の年度ごとの平均地価と増減を計算してメッシュレイヤに追加"""
@@ -349,7 +334,7 @@ class FinancialDataGenerator:
                 meshes_layer.rollBack()
 
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )

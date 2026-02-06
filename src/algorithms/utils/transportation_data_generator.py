@@ -7,7 +7,6 @@
 """
 
 import os
-import csv
 import re
 
 import processing
@@ -18,8 +17,6 @@ from qgis.core import (
     QgsVectorLayer,
     QgsField,
     QgsFeature,
-    QgsPointXY,
-    QgsGeometry,
 )
 from PyQt5.QtCore import QCoreApplication, QVariant
 
@@ -27,9 +24,9 @@ from .gpkg_manager import GpkgManager
 
 class TransportationDataGenerator:
     """交通関連データ作成機能"""
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         # GeoPackageマネージャーを初期化
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
         # インプットデータパス
         self.base_path = base_path
 
@@ -53,25 +50,26 @@ class TransportationDataGenerator:
             self.create_railway_networks()
             if self.check_canceled():
                 return  # キャンセルチェック
-            self.create_bus_networks()
+            self.create_bus_stops()
             if self.check_canceled():
                 return  # キャンセルチェック
-            self.create_traffics()
+            self.create_bus_networks()
+
             return True
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_road_networks(self):
         """道路ネットワーク作成"""
         try:
-            # base_path 配下の「道路ネットワーク」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「07_道路ネットワーク」フォルダを再帰的に探索してShapefileを収集
             road_network_folder = os.path.join(
-                self.base_path, "道路ネットワーク"
+                self.base_path, "07_道路ネットワーク"
             )
             shp_files = self.__get_shapefiles(road_network_folder)
 
@@ -84,6 +82,18 @@ class TransportationDataGenerator:
             zones_layer = self.gpkg_manager.load_layer(
                 'zones', None, withload_project=False
             )
+
+            # is_target=1の市区町村のみを抽出
+            target_zones_layer = processing.run(
+                "native:extractbyattribute",
+                {
+                    'INPUT': zones_layer,
+                    'FIELD': 'is_target',
+                    'OPERATOR': 0,  # =
+                    'VALUE': '1',
+                    'OUTPUT': 'TEMPORARY_OUTPUT',
+                },
+            )['OUTPUT']
 
             # レイヤリストを作成
             layers = []
@@ -144,13 +154,13 @@ class TransportationDataGenerator:
             processing.run("native:createspatialindex",
                            {'INPUT': merged_layer})
 
-            # ゾーンポリゴン範囲と交差する道路のみを抽出
+            # 選択された市区町村（is_target=1）の範囲と交差する道路のみを抽出
             extracted_layer = processing.run(
                 "native:extractbylocation",
                 {
                     'INPUT': merged_layer,
                     'PREDICATE': [0],  # intersects
-                    'INTERSECT': zones_layer,
+                    'INTERSECT': target_zones_layer,
                     'OUTPUT': 'TEMPORARY_OUTPUT',
                 },
             )['OUTPUT']
@@ -175,18 +185,18 @@ class TransportationDataGenerator:
         except Exception as e:
             # エラーメッセージをログに記録
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
 
-            return False
+            raise e
 
     def create_railway_stations(self):
         """鉄道駅位置データ作成"""
         try:
-            # base_path 配下の「鉄道駅位置」フォルダを再帰的に探索してShapefileを収集
-            railway_station_folder = os.path.join(self.base_path, "鉄道駅位置")
+            # base_path 配下の「03_鉄道駅位置」フォルダを再帰的に探索してShapefileを収集
+            railway_station_folder = os.path.join(self.base_path, "03_鉄道駅位置")
             shp_files = self.__get_shapefiles(railway_station_folder)
 
             if not shp_files:
@@ -199,7 +209,7 @@ class TransportationDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Warning,
                 )
-                return False
+                raise e
 
             # レイヤを格納するリスト
             layers = []
@@ -329,18 +339,18 @@ class TransportationDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_railway_networks(self):
         """鉄道ネットワークデータ作成"""
         try:
-            # base_path 配下の「鉄道ネットワーク」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「04_鉄道ネットワーク」フォルダを再帰的に探索してShapefileを収集
             railway_network_folder = os.path.join(
-                self.base_path, "鉄道ネットワーク"
+                self.base_path, "04_鉄道ネットワーク"
             )
             shp_files = self.__get_shapefiles(railway_network_folder)
 
@@ -354,7 +364,7 @@ class TransportationDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Warning,
                 )
-                return False
+                raise e
 
             # レイヤを格納するリスト
             layers = []
@@ -472,27 +482,21 @@ class TransportationDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_bus_networks(self):
         """バスネットワークデータ作成"""
         try:
-            # GTFSフォルダからデータ収集
-            bus_network_base_folder = os.path.join(
-                self.base_path, "バスネットワーク"
-            )
-            gtfs_folders = [
-                f.path
-                for f in os.scandir(bus_network_base_folder)
-                if f.is_dir()
-            ]  # GTFSフォルダリスト
+            # base_path 配下の「06_バスルート」フォルダを再帰的に探索してShapefileを収集
+            bus_route_folder = os.path.join(self.base_path, "06_バスルート")
+            shp_files = self.__get_shapefiles(bus_route_folder)
 
-            if not gtfs_folders:
-                data_name = self.tr("GTFS folder for the bus network")
+            if not shp_files:
+                data_name = self.tr("bus route Shapefile")
                 msg = self.tr(
                     "The %1 was not found."
                 ).replace("%1", data_name)
@@ -501,284 +505,19 @@ class TransportationDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Warning,
                 )
-                return False
+                raise e
 
-            # バス停位置レイヤ
-            stops_layer = QgsVectorLayer(
-                "Point?crs=EPSG:4326", "bus_stops", "memory"
-            )
-            stops_provider = stops_layer.dataProvider()
+            # バスルートレイヤを格納するリスト
+            layers = []
 
-            # バス停フィールド定義
-            stops_provider.addAttributes(
-                [
-                    QgsField("stop_id", QVariant.String),
-                    QgsField("stop_name", QVariant.String),
-                    QgsField("stop_lat", QVariant.Double),
-                    QgsField("stop_lon", QVariant.Double),
-                    QgsField("stop_times_count", QVariant.Int),  # 停車回数
-                ]
-            )
-            stops_layer.updateFields()
+            # 年度を取得（フォルダ名から）
+            year = self.__extract_year_from_path(bus_route_folder)
 
-            # バスネットワークレイヤ
-            bus_network_layer = QgsVectorLayer(
-                "MultiLineString?crs=EPSG:4326", "bus_networks", "memory"
-            )
-            bus_provider = bus_network_layer.dataProvider()
-
-            # バスネットワークのフィールド定義
-            bus_provider.addAttributes(
-                [
-                    QgsField("agency_id", QVariant.String),
-                    QgsField("route_id", QVariant.String),
-                    QgsField("from_stop_id", QVariant.String),
-                    QgsField("to_stop_id", QVariant.String),
-                ]
-            )
-            bus_network_layer.updateFields()
-
-            # 全GTFSフォルダを処理
-            for gtfs_folder in gtfs_folders:
-                msg = self.tr(
-                    "Processing GTFS folder: %1"
-                ).replace("%1", gtfs_folder)
-
-                QgsMessageLog.logMessage(
-                    msg,
-                    self.tr("Plugin"),
-                    Qgis.Info,
-                )
-
-                stops_file = os.path.join(gtfs_folder, "stops.txt")
-                stop_times_file = os.path.join(gtfs_folder, "stop_times.txt")
-                routes_file = os.path.join(gtfs_folder, "routes.txt")
-                shapes_file = os.path.join(gtfs_folder, "shapes.txt")
-
-                # エンコードの検出
-                stops_encoding = self.__detect_encoding(stops_file)
-                stop_times_encoding = self.__detect_encoding(stop_times_file)
-
-                # 停車回数を集計
-                stop_times_count = {}
-                if os.path.exists(stop_times_file):
-                    with open(
-                        stop_times_file, 'r', encoding=stop_times_encoding
-                    ) as stop_times_csv:
-                        stop_times_reader = csv.DictReader(stop_times_csv)
-                        for row in stop_times_reader:
-                            stop_id = row['stop_id']
-                            stop_times_count[stop_id] = (
-                                stop_times_count.get(stop_id, 0) + 1
-                            )
-
-                # stops.txt からバス停の位置を取得
-                if os.path.exists(stops_file):
-                    with open(
-                        stops_file, 'r', encoding=stops_encoding
-                    ) as stops_csv:
-                        stops_reader = csv.DictReader(stops_csv)
-                        for row in stops_reader:
-                            stop_id = row['stop_id']
-                            stop_name = row['stop_name']
-                            stop_lat = float(row['stop_lat'])
-                            stop_lon = float(row['stop_lon'])
-
-                            # 停車回数を取得
-                            stop_count = stop_times_count.get(stop_id, 0)
-
-                            # フィーチャを作成
-                            feature = QgsFeature()
-                            point = QgsPointXY(stop_lon, stop_lat)
-                            feature.setGeometry(QgsGeometry.fromPointXY(point))
-                            feature.setAttributes(
-                                [
-                                    stop_id,
-                                    stop_name,
-                                    stop_lat,
-                                    stop_lon,
-                                    stop_count,
-                                ]
-                            )
-                            stops_provider.addFeature(feature)
-
-                # バスネットワークを生成
-                if os.path.exists(routes_file) and os.path.exists(shapes_file):
-                    routes = self.__load_csv(routes_file)
-                    trips = self.__load_csv(
-                        os.path.join(gtfs_folder, "trips.txt")
-                    )
-                    stop_times = self.__load_csv(stop_times_file)
-                    stops = self.__load_csv(stops_file)
-
-                    stop_coords = {
-                        stop['stop_id']: (
-                            float(stop['stop_lon']),
-                            float(stop['stop_lat']),
-                        )
-                        for stop in stops
-                    }
-
-                    # tripごとの処理
-                    for trip in trips:
-                        trip_id = trip['trip_id']
-                        route_id = trip['route_id']
-                        # agency_id を routes から取得
-                        agency_id = next(
-                            (
-                                route['agency_id']
-                                for route in routes
-                                if route['route_id'] == route_id
-                            ),
-                            None,
-                        )
-
-                        # trip_idに対応する停車順序を取得
-                        trip_stop_times = [
-                            st for st in stop_times if st['trip_id'] == trip_id
-                        ]
-                        trip_stop_times.sort(
-                            key=lambda x: int(x['stop_sequence'])
-                        )
-
-                        # 停車区間を結ぶ線を作成
-                        for i in range(len(trip_stop_times) - 1):
-                            from_stop_id = trip_stop_times[i]['stop_id']
-                            to_stop_id = trip_stop_times[i + 1]['stop_id']
-
-                            from_coords = stop_coords.get(from_stop_id)
-                            to_coords = stop_coords.get(to_stop_id)
-
-                            if from_coords and to_coords:
-                                # LineStringジオメトリ作成
-                                line = QgsGeometry.fromPolylineXY(
-                                    [
-                                        QgsPointXY(
-                                            from_coords[0], from_coords[1]
-                                        ),
-                                        QgsPointXY(to_coords[0], to_coords[1]),
-                                    ]
-                                )
-
-                                # 新しいフィーチャ作成
-                                feature = QgsFeature()
-                                feature.setGeometry(line)
-                                feature.setAttributes(
-                                    [
-                                        agency_id,
-                                        route_id,
-                                        from_stop_id,
-                                        to_stop_id,
-                                    ]
-                                )
-                                bus_provider.addFeature(feature)
-
-            stops_layer.commitChanges()
-            bus_network_layer.commitChanges()
-
-            # 保存処理
-            if not self.gpkg_manager.add_layer(
-                stops_layer, "bus_stops", "バス停"
-            ):
-                raise Exception(
-                    "GeoPackageへのバス停レイヤ追加に失敗しました。"
-                )
-            if not self.gpkg_manager.add_layer(
-                bus_network_layer, "bus_networks", "バスネットワーク"
-            ):
-                raise Exception(
-                    "GeoPackageへのバスネットワークレイヤ追加に失敗しました。"
-                )
-
-            data_name = self.tr("bus network")
-            msg = self.tr(
-                "%1 data generation completed."
-            ).replace("%1", data_name)
-            QgsMessageLog.logMessage(
-                msg,
-                self.tr("Plugin"),
-                Qgis.Info,
-            )
-            return True
-
-        except Exception as e:
-            QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
-                self.tr("Plugin"),
-                Qgis.Critical,
-            )
-            return False
-
-    def create_traffics(self):
-        """交通流動データ作成"""
-        try:
-            # base_path 配下の「交通流動」フォルダを再帰的に探索してShapefileを収集
-            traffic_flow_folder = os.path.join(self.base_path, "交通流動")
-            shp_files = self.__get_shapefiles(traffic_flow_folder)
-
-            if not shp_files:
-                raise Exception(self.tr("The %1 layer was not found.")
-                    .replace("%1", "traffics"))
-
-            # フィールドマッピング（shpファイルのフィールド名: trafficsレイヤのフィールド名）
-            field_mappings = {
-                "S05a_001": "urban_area",
-                "S05a_002": "survey_year",
-                "S05a_003": "occurrence_concentration",
-                "S05a_004": "zone_code",
-                "S05a_005": "rail_commute_trip_count",
-                "S05a_006": "rail_school_trip_count",
-                "S05a_007": "rail_leisure_trip_count",
-                "S05a_008": "rail_business_trip_count",
-                "S05a_009": "rail_home_trip_count",
-                "S05a_010": "rail_total_trip_count",
-                "S05a_011": "bus_commute_trip_count",
-                "S05a_012": "bus_school_trip_count",
-                "S05a_013": "bus_leisure_trip_count",
-                "S05a_014": "bus_business_trip_count",
-                "S05a_015": "bus_home_trip_count",
-                "S05a_016": "bus_total_trip_count",
-                "S05a_017": "car_commute_trip_count",
-                "S05a_018": "car_school_trip_count",
-                "S05a_019": "car_leisure_trip_count",
-                "S05a_020": "car_business_trip_count",
-                "S05a_021": "car_home_trip_count",
-                "S05a_022": "car_total_trip_count",
-                "S05a_023": "motorcycle_commute_trip_count",
-                "S05a_024": "motorcycle_school_trip_count",
-                "S05a_025": "motorcycle_leisure_trip_count",
-                "S05a_026": "motorcycle_business_trip_count",
-                "S05a_027": "motorcycle_home_trip_count",
-                "S05a_028": "motorcycle_total_trip_count",
-                "S05a_029": "walking_commute_trip_count",
-                "S05a_030": "walking_school_trip_count",
-                "S05a_031": "walking_leisure_trip_count",
-                "S05a_032": "walking_business_trip_count",
-                "S05a_033": "walking_home_trip_count",
-                "S05a_034": "walking_total_trip_count",
-                "S05a_035": "total_trip_count",
-            }
-
-            # traffic_flowレイヤの作成
-            traffic_flow_layer = QgsVectorLayer(
-                "Polygon?crs=EPSG:4326", "traffics", "memory"
-            )
-            traffic_provider = traffic_flow_layer.dataProvider()
-
-            # フィールド追加
-            fields = [
-                (
-                    QgsField(name, QVariant.Int)
-                    if "count" in name
-                    else QgsField(name, QVariant.String)
-                )
-                for name in field_mappings.values()
-            ]
-            traffic_provider.addAttributes(fields)
-            traffic_flow_layer.updateFields()
-
-            # 各Shapefileを処理
             for shp_file in shp_files:
+                if self.check_canceled():
+                    return  # キャンセルチェック
+
+                # Shapefile 読み込み
                 layer = QgsVectorLayer(
                     shp_file, os.path.basename(shp_file), "ogr"
                 )
@@ -794,27 +533,76 @@ class TransportationDataGenerator:
                     )
                     continue
 
+                # Shapefileの属性フィールドバリデーション
+                layer_fields = set(layer.fields().names())
+                required_fields = {
+                    "N07_001",  # 事業者名
+                }  # 必須フィールド（N07_001のみ必須とする）
+                
+                if not required_fields.issubset(layer_fields):
+                    data_name = self.tr("bus network")
+                    msg = (
+                        self.tr("%1 cannot be loaded as %2 data.")
+                        .replace("%1", shp_file)
+                        .replace("%2", data_name)
+                    )
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # 一時メモリレイヤを作成し、Shapefileのデータを取り込み
+                temp_layer = QgsVectorLayer(
+                    f"MultiLineString?crs={layer.crs().authid()}", "bus_networks", "memory"
+                )
+                temp_provider = temp_layer.dataProvider()
+
+                # 必要なフィールドを追加
+                fields = [
+                    QgsField("operator_name", QVariant.String),  # N07_001
+                    QgsField("remarks", QVariant.String),        # N07_002
+                    QgsField("year", QVariant.Int),
+                ]
+                temp_provider.addAttributes(fields)
+                temp_layer.updateFields()
+
+                temp_layer.startEditing()
+
                 # フィーチャの追加
                 for feature in layer.getFeatures():
                     new_feature = QgsFeature()
                     new_feature.setGeometry(feature.geometry())
 
-                    # マッピングに沿ってフィールドコピー
+                    # 属性データ
                     attributes = [
-                        feature[field] for field in field_mappings.keys()
+                        feature["N07_001"],  # operator_name（事業者名）
+                        feature.attribute("N07_002") if "N07_002" in layer_fields else "",  # remarks（備考）
+                        year,  # year
                     ]
                     new_feature.setAttributes(attributes)
-                    traffic_provider.addFeature(new_feature)
+                    temp_provider.addFeature(new_feature)
 
-            # trafficsレイヤをGeoPackageに保存
-            if not self.gpkg_manager.add_layer(
-                traffic_flow_layer, "traffics", "発生集中量"
-            ):
+                temp_layer.commitChanges()
+
+                layers.append(temp_layer)
+
+            if not layers:
                 raise Exception(
-                    "GeoPackageへのtraffic_flowレイヤ追加に失敗しました。"
+                    "有効なバスルートのShapefileが見つかりませんでした。"
                 )
 
-            data_name = self.tr("traffic")
+            # 複数のレイヤをマージ
+            merged_layer = self.__merge_layers(layers)
+
+            # bus_networksレイヤをGeoPackageに保存
+            if not self.gpkg_manager.add_layer(
+                merged_layer, "bus_networks", "バスネットワーク"
+            ):
+                raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+            data_name = self.tr("bus network")
             msg = self.tr(
                 "%1 data generation completed."
             ).replace("%1", data_name)
@@ -827,11 +615,147 @@ class TransportationDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
+
+    def create_bus_stops(self):
+        """バス停データ作成"""
+        try:
+            # base_path 配下の「05_バス停」フォルダを再帰的に探索してShapefileを収集
+            bus_stop_folder = os.path.join(self.base_path, "05_バス停")
+            shp_files = self.__get_shapefiles(bus_stop_folder)
+
+            if not shp_files:
+                data_name = self.tr("bus stop Shapefile")
+                msg = self.tr(
+                    "The %1 was not found."
+                ).replace("%1", data_name)
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                raise e
+
+            # バス停レイヤを格納するリスト
+            layers = []
+
+            # 年度を取得（フォルダ名から）
+            year = self.__extract_year_from_path(bus_stop_folder)
+
+            for shp_file in shp_files:
+                if self.check_canceled():
+                    return  # キャンセルチェック
+
+                # Shapefile 読み込み
+                layer = QgsVectorLayer(
+                    shp_file, os.path.basename(shp_file), "ogr"
+                )
+
+                if not layer.isValid():
+                    msg = self.tr(
+                        "Failed to load layer: %1"
+                    ).replace("%1", shp_file)
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # Shapefileの属性フィールドバリデーション
+                layer_fields = set(layer.fields().names())
+                required_fields = {
+                    "P11_001",  # バス停名
+                    "P11_002",  # バス事業者名
+                }  # 必須フィールド
+                
+                if not required_fields.issubset(layer_fields):
+                    data_name = self.tr("bus stop")
+                    msg = (
+                        self.tr("%1 cannot be loaded as %2 data.")
+                        .replace("%1", shp_file)
+                        .replace("%2", data_name)
+                    )
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # 一時メモリレイヤを作成し、Shapefileのデータを取り込み
+                temp_layer = QgsVectorLayer(
+                    f"Point?crs={layer.crs().authid()}", "bus_stops", "memory"
+                )
+                temp_provider = temp_layer.dataProvider()
+
+                # 必要なフィールドを追加
+                fields = [
+                    QgsField("stop_name", QVariant.String),      # P11_001
+                    QgsField("operator_name", QVariant.String),  # P11_002
+                    QgsField("remarks", QVariant.String),        # P11_005
+                    QgsField("year", QVariant.Int),
+                ]
+                temp_provider.addAttributes(fields)
+                temp_layer.updateFields()
+
+                temp_layer.startEditing()
+
+                # フィーチャの追加
+                for feature in layer.getFeatures():
+                    new_feature = QgsFeature()
+                    new_feature.setGeometry(feature.geometry())
+
+                    # 属性データ
+                    attributes = [
+                        feature["P11_001"],  # stop_name（バス停名）
+                        feature["P11_002"],  # operator_name（バス事業者名）
+                        feature.attribute("P11_005") if "P11_005" in layer_fields else "",  # remarks（備考）
+                        year,  # year
+                    ]
+                    new_feature.setAttributes(attributes)
+                    temp_provider.addFeature(new_feature)
+
+                temp_layer.commitChanges()
+
+                layers.append(temp_layer)
+
+            if not layers:
+                raise Exception(
+                    "有効なバス停のShapefileが見つかりませんでした。"
+                )
+
+            # 複数のレイヤをマージ
+            merged_layer = self.__merge_layers(layers)
+
+            # bus_stopsレイヤをGeoPackageに保存
+            if not self.gpkg_manager.add_layer(
+                merged_layer, "bus_stops", "バス停"
+            ):
+                raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+            data_name = self.tr("bus stop")
+            msg = self.tr(
+                "%1 data generation completed."
+            ).replace("%1", data_name)
+            QgsMessageLog.logMessage(
+                msg,
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            return True
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
 
     def __get_shapefiles(self, directory):
         """指定されたディレクトリ配下のすべてのShapefile (.shp) を再帰的に取得する"""
@@ -916,23 +840,3 @@ class TransportationDataGenerator:
             )
             return 'UTF-8'
 
-    def __load_csv(self, file_path):
-        """CSVファイルを読み込む"""
-        data = []
-        try:
-            # ファイルのエンコーディングを検出
-            encoding = self.__detect_encoding(file_path)
-
-            # 検出したエンコーディングでファイルを読み込む
-            with open(file_path, 'r', encoding=encoding) as csv_file:
-                reader = csv.DictReader(csv_file)
-                for row in reader:
-                    data.append(row)
-        except Exception as e:
-            msg = self.tr("Failed to load CSV file: %1").replace("%1", e)
-            QgsMessageLog.logMessage(
-                msg,
-                self.tr("Plugin"),
-                Qgis.Critical,
-            )
-        return data

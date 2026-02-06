@@ -43,9 +43,12 @@ class AreaDataGenerator:
         threshold_railway,
         threshold_shelter,
         check_canceled_callback=None,
+        gpkg_manager=None,
+        is_after_change=False,
+        induction_area_folder=None,
     ):
         # GeoPackageマネージャーを初期化
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
         # インプットデータパス
         self.base_path = base_path
         # 閾値の設定
@@ -55,46 +58,86 @@ class AreaDataGenerator:
 
         self.check_canceled = check_canceled_callback
 
+        # 変更後モードフラグ
+        self.is_after_change = is_after_change
+        # 変更後誘導区域フォルダパス
+        self.induction_area_folder = induction_area_folder
+
     def tr(self, message):
         """翻訳用のメソッド"""
         return QCoreApplication.translate(self.__class__.__name__, message)
 
     def create_area_data(self):
         """圏域作成処理"""
+        # 変更後モードの場合は、誘導区域の更新のみ実行
+        if self.is_after_change:
+            self.update_induction_area()
+            return
+
+        # 変更前モードの場合は全処理を実行
         self.create_station_coverage_area()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_bus_stop_coverage_area()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_shelter()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_shelter_area()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_urban_function_induction_area()
+
+        if self.check_canceled():
+            return  # キャンセルチェック
+        self.create_hypothetical_residential_areas()
+
+        # 誘導区域と仮想居住誘導区域の両方が空かチェック
+        if self.check_canceled():
+            return  # キャンセルチェック
+        self.validate_induction_areas()
+
+        if self.check_canceled():
+            return  # キャンセルチェック
+        self.create_land_use_maps()
+
+        if self.check_canceled():
+            return  # キャンセルチェック
+        self.create_change_maps()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_urbun_planning_area()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_land_use_area()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_hazard_area_planned_scale()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_hazard_area_max_scale()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_hazard_area_storm_surge()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_hazard_area_tsunami()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_hazard_area_landslide()
+
         if self.check_canceled():
             return  # キャンセルチェック
         self.create_hazard_area_floodplain()
@@ -115,57 +158,53 @@ class AreaDataGenerator:
                     ).replace("%1", layer_name)
                 )
 
-
             # バッファの距離
             buffer_distance = self.threshold_railway  # 閾値（単位: m）
 
-            # 投影座標系に変換
+            # 投影座標系に変換（EPSG:3857 - Web Mercator）
             target_crs = QgsCoordinateReferenceSystem('EPSG:3857')
-            transform = QgsCoordinateTransform(
-                railway_layer.crs(), target_crs, QgsProject.instance()
-            )
+            
+            # 座標系変換
+            reprojected_layer = processing.run(
+                "native:reprojectlayer",
+                {
+                    'INPUT': railway_layer,
+                    'TARGET_CRS': target_crs,
+                    'OUTPUT': 'memory:',
+                },
+            )['OUTPUT']
 
-            # railway_stationsレイヤと同じCRSを使用してメモリレイヤを作成
-            buffer_layer = QgsVectorLayer(
-                f"Polygon?crs={target_crs.authid()}",
-                "railway_station_buffers",
-                "memory",
-            )
+            # プロセシングでバッファを作成（属性を保持）
+            buffer_layer = processing.run(
+                "native:buffer",
+                {
+                    'INPUT': reprojected_layer,
+                    'DISTANCE': buffer_distance,
+                    'SEGMENTS': 5,
+                    'END_CAP_STYLE': 0,  # Round
+                    'JOIN_STYLE': 0,  # Round
+                    'MITER_LIMIT': 2,
+                    'DISSOLVE': False,  # 個々のフィーチャを保持
+                    'OUTPUT': 'memory:',
+                },
+            )['OUTPUT']
+
+            # buffer_distance フィールドを追加
             buffer_provider = buffer_layer.dataProvider()
-
-            # railway_stationsの属性を保持、閾値の属性を追加
-            buffer_provider.addAttributes(
-                railway_layer.fields()
-            )  # 駅の既存フィールド
             buffer_provider.addAttributes(
                 [QgsField("buffer_distance", QVariant.Double)]
-            )  # 閾値フィールド
+            )
             buffer_layer.updateFields()
 
-            # フィーチャごとにバッファを作成
-            for station in railway_layer.getFeatures():
-                station_geom = station.geometry()
-
-                # 座標系変換を適用
-                station_geom.transform(transform)
-
-                # 投影座標系でバッファを計算
-                buffer_geom = station_geom.buffer(
-                    float(buffer_distance), 5
-                )  # バッファ作成
-
-                buffer_feature = QgsFeature()
-                buffer_feature.setGeometry(buffer_geom)
-
-                # 元の属性をそのままコピー
-                station_attributes = station.attributes()
-                station_attributes.append(float(buffer_distance))
-
-                # 属性を設定
-                buffer_feature.setAttributes(station_attributes)
-
-                # フィーチャを追加
-                buffer_provider.addFeature(buffer_feature)
+            # buffer_distance の値を設定
+            buffer_layer.startEditing()
+            for feature in buffer_layer.getFeatures():
+                buffer_layer.changeAttributeValue(
+                    feature.id(),
+                    buffer_layer.fields().indexOf("buffer_distance"),
+                    float(buffer_distance)
+                )
+            buffer_layer.commitChanges()
 
             # GeoPackage に保存
             if not self.gpkg_manager.add_layer(
@@ -186,11 +225,11 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_bus_stop_coverage_area(self):
         """バス停カバー圏域作成"""
@@ -211,53 +250,50 @@ class AreaDataGenerator:
             # バッファの距離
             buffer_distance = self.threshold_bus  # 閾値（単位: m）
 
-            # 投影座標系に変換
+            # 投影座標系に変換（EPSG:3857 - Web Mercator）
             target_crs = QgsCoordinateReferenceSystem('EPSG:3857')
-            transform = QgsCoordinateTransform(
-                bus_layer.crs(), target_crs, QgsProject.instance()
-            )
+            
+            # 座標系変換
+            reprojected_layer = processing.run(
+                "native:reprojectlayer",
+                {
+                    'INPUT': bus_layer,
+                    'TARGET_CRS': target_crs,
+                    'OUTPUT': 'memory:',
+                },
+            )['OUTPUT']
 
-            # bus_stopsレイヤと同じCRSを使用してメモリレイヤを作成
-            buffer_layer = QgsVectorLayer(
-                f"Polygon?crs={target_crs.authid()}",
-                "bus_stop_buffers",
-                "memory",
-            )
+            # プロセシングでバッファを作成（属性を保持）
+            buffer_layer = processing.run(
+                "native:buffer",
+                {
+                    'INPUT': reprojected_layer,
+                    'DISTANCE': buffer_distance,
+                    'SEGMENTS': 5,
+                    'END_CAP_STYLE': 0,  # Round
+                    'JOIN_STYLE': 0,  # Round
+                    'MITER_LIMIT': 2,
+                    'DISSOLVE': False,  # 個々のフィーチャを保持
+                    'OUTPUT': 'memory:',
+                },
+            )['OUTPUT']
+
+            # buffer_distance フィールドを追加
             buffer_provider = buffer_layer.dataProvider()
-
-            # bus_stopsの属性を保持、閾値の属性を追加
-            buffer_provider.addAttributes(
-                bus_layer.fields()
-            )  # バス停の既存フィールド
             buffer_provider.addAttributes(
                 [QgsField("buffer_distance", QVariant.Double)]
-            )  # 閾値フィールド
+            )
             buffer_layer.updateFields()
 
-            # フィーチャごとにバッファを作成
-            for stop in bus_layer.getFeatures():
-                stop_geom = stop.geometry()
-
-                # 座標系変換を適用
-                stop_geom.transform(transform)
-
-                # 投影座標系でバッファを計算
-                buffer_geom = stop_geom.buffer(
-                    float(buffer_distance), 5
-                )  # バッファ作成
-
-                buffer_feature = QgsFeature()
-                buffer_feature.setGeometry(buffer_geom)
-
-                # 元の属性をそのままコピー
-                stop_attributes = stop.attributes()
-                stop_attributes.append(float(buffer_distance))
-
-                # 属性を設定
-                buffer_feature.setAttributes(stop_attributes)
-
-                # フィーチャを追加
-                buffer_provider.addFeature(buffer_feature)
+            # buffer_distance の値を設定
+            buffer_layer.startEditing()
+            for feature in buffer_layer.getFeatures():
+                buffer_layer.changeAttributeValue(
+                    feature.id(),
+                    buffer_layer.fields().indexOf("buffer_distance"),
+                    float(buffer_distance)
+                )
+            buffer_layer.commitChanges()
 
             # GeoPackage に保存
             if not self.gpkg_manager.add_layer(
@@ -278,17 +314,17 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_shelter(self):
         """避難施設作成"""
         try:
-            # base_path 配下の「避難所」フォルダを再帰的に探索してShapefileを収集
-            induction_area_folder = os.path.join(self.base_path, "避難所")
+            # base_path 配下の「09_避難所」フォルダを再帰的に探索してShapefileを収集
+            induction_area_folder = os.path.join(self.base_path, "09_避難所")
             shp_files = self.__get_shapefiles(induction_area_folder)
 
             # レイヤを格納するリスト
@@ -430,11 +466,11 @@ class AreaDataGenerator:
             return True
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_shelter_area(self):
         """避難施設圏域作成"""
@@ -606,11 +642,11 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def __extract_road_nodes(self, roads, crs):
         """道路ネットワークレイヤからノード情報を抽出し、グラフを構築するメソッド"""
@@ -847,36 +883,65 @@ class AreaDataGenerator:
     def create_urban_function_induction_area(self):
         """都市機能誘導区域/居住誘導区域 作成"""
         try:
-            # base_path 配下の「誘導区域」フォルダを再帰的に探索してShapefileを収集
-            induction_area_folder = os.path.join(self.base_path, "誘導区域")
+            # base_path 配下の「21_誘導区域」フォルダを再帰的に探索してShapefileを収集
+            induction_area_folder = os.path.join(self.base_path, "21_誘導区域")
             shp_files = self.__get_shapefiles(induction_area_folder)
+
+            # レイヤを格納するリスト
+            layers = []
 
             if not shp_files:
                 data_name = self.tr("induction area")
                 msg = (
-                    self.tr("No Shapefile found for the %1.")
+                    self.tr("No Shapefile found for the %1. Creating empty layer.")
                     .replace("%1", data_name)
                 )
                 QgsMessageLog.logMessage(
                     msg,
                     self.tr("Plugin"),
-                    Qgis.Warning,
+                    Qgis.Info,
                 )
-                return False
 
-            # レイヤを格納するリスト
-            layers = []
+                # 空のレイヤを作成
+                empty_layer = QgsVectorLayer(
+                    "Polygon", "induction_areas", "memory"
+                )
+                empty_provider = empty_layer.dataProvider()
+                # 必要なフィールドを追加
+                empty_provider.addAttributes(
+                    [
+                        QgsField("type", QVariant.String),
+                        QgsField("type_id", QVariant.Int),
+                        QgsField("prefecture_name", QVariant.String),
+                        QgsField("city_code", QVariant.String),
+                        QgsField("city_name", QVariant.String),
+                        QgsField("first_decision_date", QVariant.String),
+                        QgsField("last_decision_date", QVariant.String),
+                        QgsField("decision_type", QVariant.Int),
+                        QgsField("decider", QVariant.String),
+                        QgsField("notice_number_s", QVariant.String),
+                        QgsField("notice_number_l", QVariant.String),
+                    ]
+                )
+                empty_layer.updateFields()
+
+                # 空のレイヤをGeoPackageに保存（レイヤパネルには追加しない）
+                if not self.gpkg_manager.add_layer(
+                    empty_layer, "induction_areas", "誘導区域",
+                    withload_project=False
+                ):
+                    raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+                return True
 
             for shp_file in shp_files:
                 if self.check_canceled():
                     return  # キャンセルチェック
-                encoding = self.__detect_encoding(shp_file)
 
                 # Shapefile 読み込み
                 layer = QgsVectorLayer(
                     shp_file, os.path.basename(shp_file), "ogr"
                 )
-                layer.setProviderEncoding(encoding)
 
                 if not layer.isValid():
                     msg = self.tr(
@@ -892,17 +957,17 @@ class AreaDataGenerator:
                 # Shapefileの属性フィールドバリデーション
                 layer_fields = set(layer.fields().names())
                 required_fields = {
-                    "区域区分",
-                    "kubunID",
+                    "AreaType",
+                    "AreaCode",
                     "Pref",
                     "Citycode",
                     "Cityname",
-                    "当初決定日",
-                    "最終告示日",
-                    "決定区分",
-                    "決定者",
-                    "告示番号S",
-                    "告示番号L",
+                    "INDate",
+                    "FNDate",
+                    "ValidType",
+                    "Custodian",
+                    "INNumber",
+                    "FNNumber",
                 }
 
                 if not required_fields.issubset(layer_fields):
@@ -954,17 +1019,17 @@ class AreaDataGenerator:
 
                     # 属性データのマッピング
                     attributes = [
-                        feature["区域区分"],  # type
-                        feature["kubunID"],  # type_id
+                        feature["AreaType"],  # type
+                        feature["AreaCode"],  # type_id
                         feature["Pref"],  # prefecture_name
                         feature["Citycode"],  # city_code
                         feature["Cityname"],  # city_name
-                        feature["当初決定日"],  # first_decision_date
-                        feature["最終告示日"],  # last_decision_date
-                        feature["決定区分"],  # decision_type
-                        feature["決定者"],  # decider
-                        feature["告示番号S"],  # notice_number_s
-                        feature["告示番号L"],  # notice_number_l
+                        feature["INDate"],  # first_decision_date
+                        feature["FNDate"],  # last_decision_date
+                        feature["ValidType"],  # decision_type
+                        feature["Custodian"],  # decider
+                        feature["INNumber"],  # notice_number_s
+                        feature["FNNumber"],  # notice_number_l
                     ]
                     new_feature.setAttributes(attributes)
                     temp_provider.addFeature(new_feature)
@@ -972,16 +1037,66 @@ class AreaDataGenerator:
                 layers.append(temp_layer)
 
             if not layers:
-                raise Exception(
-                    "有効な立地適正化区域のShapefileが見つかりませんでした。"
+                # Shapefileは見つかったが有効なデータがなかった場合、空のレイヤを作成
+                data_name = self.tr("induction area")
+                msg = (
+                    self.tr("No valid Shapefile found for the %1. Creating empty layer.")
+                    .replace("%1", data_name)
                 )
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+
+                # 空のレイヤを作成
+                empty_layer = QgsVectorLayer(
+                    "Polygon", "induction_areas", "memory"
+                )
+                empty_provider = empty_layer.dataProvider()
+                # 必要なフィールドを追加
+                empty_provider.addAttributes(
+                    [
+                        QgsField("type", QVariant.String),
+                        QgsField("type_id", QVariant.Int),
+                        QgsField("prefecture_name", QVariant.String),
+                        QgsField("city_code", QVariant.String),
+                        QgsField("city_name", QVariant.String),
+                        QgsField("first_decision_date", QVariant.String),
+                        QgsField("last_decision_date", QVariant.String),
+                        QgsField("decision_type", QVariant.Int),
+                        QgsField("decider", QVariant.String),
+                        QgsField("notice_number_s", QVariant.String),
+                        QgsField("notice_number_l", QVariant.String),
+                    ]
+                )
+                empty_layer.updateFields()
+
+                # 空のレイヤをGeoPackageに保存（レイヤパネルには追加しない）
+                if not self.gpkg_manager.add_layer(
+                    empty_layer, "induction_areas", "誘導区域",
+                    withload_project=False
+                ):
+                    raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+                return True
 
             # 複数のレイヤをマージ
             merged_layer = self.__merge_layers(layers)
 
+            # type_id=31(居住誘導区域)またはtype_id=32(都市機能誘導区域)が存在するかチェック
+            has_valid_induction_areas = False
+            for feature in merged_layer.getFeatures():
+                type_id = feature["type_id"]
+                if type_id == 31 or type_id == 32:
+                    has_valid_induction_areas = True
+                    break
+
             # induction_areasレイヤをGeoPackageに保存
+            # type_id=31,32がない場合はレイヤパネルに追加しない
             if not self.gpkg_manager.add_layer(
-                merged_layer, "induction_areas", "誘導区域"
+                merged_layer, "induction_areas", "誘導区域",
+                withload_project=has_valid_induction_areas
             ):
                 raise Exception(self.tr("Failed to add layer to GeoPackage."))
 
@@ -998,17 +1113,589 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
+
+    def create_hypothetical_residential_areas(self):
+        """仮想居住誘導区域 作成"""
+        try:
+            # 誘導区域に居住誘導区域(type_id=31)が存在するかチェック
+            induction_areas_layer = self.gpkg_manager.load_layer(
+                'induction_areas', None, withload_project=False
+            )
+
+            has_residential_induction = False
+            if induction_areas_layer:
+                for feature in induction_areas_layer.getFeatures():
+                    if feature.attribute('type_id') == 31:
+                        has_residential_induction = True
+                        break
+
+            # base_path 配下の「22_仮想居住誘導区域」フォルダを再帰的に探索してShapefileを収集
+            hypothetical_folder = os.path.join(self.base_path, "22_仮想居住誘導区域")
+            shp_files = self.__get_shapefiles(hypothetical_folder)
+
+            # レイヤを格納するリスト
+            layers = []
+
+            if not shp_files:
+                data_name = self.tr("hypothetical residential areas")
+                msg = (
+                    self.tr("No Shapefile found for the %1. Creating empty layer.")
+                    .replace("%1", data_name)
+                )
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+
+                # 空のレイヤを作成
+                empty_layer = QgsVectorLayer(
+                    "Polygon", "hypothetical_residential_areas", "memory"
+                )
+                empty_provider = empty_layer.dataProvider()
+                # 最小限のフィールドを追加
+                empty_provider.addAttributes(
+                    [QgsField("id", QVariant.Int), QgsField("type_id", QVariant.Int)]
+                )
+                empty_layer.updateFields()
+
+                # 居住誘導区域がある場合はレイヤパネルに追加しない
+                # 居住誘導区域がない場合はレイヤパネルに追加する
+                if not self.gpkg_manager.add_layer(
+                    empty_layer, "hypothetical_residential_areas", "仮想居住誘導区域",
+                    withload_project=not has_residential_induction
+                ):
+                    raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+                return True
+
+            for shp_file in shp_files:
+                if self.check_canceled():
+                    return  # キャンセルチェック
+                encoding = self.__detect_encoding(shp_file)
+
+                # Shapefile 読み込み
+                layer = QgsVectorLayer(
+                    shp_file, os.path.basename(shp_file), "ogr"
+                )
+                layer.setProviderEncoding(encoding)
+
+                if not layer.isValid():
+                    msg = self.tr(
+                        "Failed to load layer: %1"
+                    ).replace("%1", shp_file)
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # 一時メモリレイヤを作成し、Shapefileのデータをそのまま取り込み
+                temp_layer = QgsVectorLayer(
+                    f"Polygon?crs={layer.crs().authid()}",
+                    "hypothetical_residential_areas",
+                    "memory",
+                )
+                temp_provider = temp_layer.dataProvider()
+
+                # 元のShapefileの全フィールドをそのまま追加
+                fields_to_add = []
+                for field in layer.fields():
+                    fields_to_add.append(QgsField(field.name(), field.type()))
+                temp_provider.addAttributes(fields_to_add)
+                temp_layer.updateFields()
+
+                # フィーチャをそのまま追加
+                for feature in layer.getFeatures():
+                    if self.check_canceled():
+                        return  # キャンセルチェック
+                    new_feature = QgsFeature()
+                    new_feature.setGeometry(feature.geometry())
+                    # 全属性をそのままコピー
+                    new_feature.setAttributes(feature.attributes())
+                    temp_provider.addFeature(new_feature)
+
+                layers.append(temp_layer)
+
+            if not layers:
+                raise Exception(
+                    "有効な仮想居住誘導区域のShapefileが見つかりませんでした。"
+                )
+
+            # 複数のレイヤをマージ
+            merged_layer = self.__merge_layers(layers)
+
+            # type_idフィールドが存在しない場合は追加
+            provider = merged_layer.dataProvider()
+            if 'type_id' not in merged_layer.fields().names():
+                provider.addAttributes([QgsField('type_id', QVariant.Int)])
+                merged_layer.updateFields()
+
+            # すべてのフィーチャのtype_idを31（居住誘導区域）に設定
+            field_idx = merged_layer.fields().indexOf('type_id')
+            updates = {}
+            for feature in merged_layer.getFeatures():
+                updates[feature.id()] = {field_idx: 31}
+
+            if updates:
+                provider.changeAttributeValues(updates)
+
+            # 居住誘導区域がある場合はレイヤパネルに追加しない
+            # 居住誘導区域がない場合はレイヤパネルに追加する
+            if not self.gpkg_manager.add_layer(
+                merged_layer, "hypothetical_residential_areas", "仮想居住誘導区域",
+                withload_project=not has_residential_induction
+            ):
+                raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+            data_name = self.tr("hypothetical residential areas")
+            msg = self.tr(
+                "%1 data generation completed."
+            ).replace("%1", data_name)
+            QgsMessageLog.logMessage(
+                msg,
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            return True
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
+
+    def validate_induction_areas(self):
+        """誘導区域と仮想居住誘導区域の両方が空でないかチェック"""
+        try:
+            # 誘導区域レイヤを読み込み
+            induction_areas_layer = self.gpkg_manager.load_layer(
+                'induction_areas', None, withload_project=False
+            )
+
+            # 仮想居住誘導区域レイヤを読み込み
+            hypothetical_residential_areas_layer = self.gpkg_manager.load_layer(
+                'hypothetical_residential_areas', None, withload_project=False
+            )
+
+            # 誘導区域レイヤに居住誘導区域(type_id=31)が存在するかチェック
+            has_residential_induction = False
+            if induction_areas_layer:
+                for feature in induction_areas_layer.getFeatures():
+                    if feature["type_id"] == 31:
+                        has_residential_induction = True
+                        break
+
+            # 仮想居住誘導区域レイヤのフィーチャ数をチェック
+            hypothetical_count = 0
+            if hypothetical_residential_areas_layer:
+                hypothetical_count = hypothetical_residential_areas_layer.featureCount()
+
+            # 両方とも存在しない場合はエラー
+            if not has_residential_induction and hypothetical_count == 0:
+                msg = "誘導区域データがありません（居住誘導区域または仮想居住誘導区域が必要です）"
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Critical,
+                )
+                raise Exception(msg)
+
+            return True
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
+
+    def create_land_use_maps(self):
+        """土地利用細分化メッシュ 作成"""
+        try:
+            # base_path 配下の「14_土地利用細分化メッシュ」フォルダを再帰的に探索してShapefileを収集
+            land_use_folder = os.path.join(self.base_path, "14_土地利用細分化メッシュ")
+            shp_files = self.__get_shapefiles(land_use_folder)
+
+            # レイヤを格納するリスト
+            layers = []
+
+            if not shp_files:
+                data_name = self.tr("land use maps")
+                msg = (
+                    self.tr("No Shapefile found for the %1. Creating empty layer.")
+                    .replace("%1", data_name)
+                )
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+                
+                # 空のレイヤを作成
+                empty_layer = QgsVectorLayer(
+                    "Polygon", "land_use_maps", "memory"
+                )
+                empty_provider = empty_layer.dataProvider()
+                # フィールドを追加
+                empty_provider.addAttributes(
+                    [
+                        QgsField("code", QVariant.String),
+                        QgsField("type", QVariant.String),
+                        QgsField("snap_date", QVariant.String),
+                    ]
+                )
+                empty_layer.updateFields()
+                
+                # 空のレイヤをGeoPackageに保存
+                if not self.gpkg_manager.add_layer(
+                    empty_layer, "land_use_maps", "土地利用細分化メッシュ"
+                ):
+                    raise Exception(self.tr("Failed to add layer to GeoPackage."))
+                
+                return True
+
+            for shp_file in shp_files:
+                if self.check_canceled():
+                    return  # キャンセルチェック
+                encoding = self.__detect_encoding(shp_file)
+
+                # Shapefile 読み込み
+                layer = QgsVectorLayer(
+                    shp_file, os.path.basename(shp_file), "ogr"
+                )
+                layer.setProviderEncoding(encoding)
+
+                if not layer.isValid():
+                    msg = self.tr(
+                        "Failed to load layer: %1"
+                    ).replace("%1", shp_file)
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # Shapefileの属性フィールドバリデーション
+                layer_fields = set(layer.fields().names())
+                required_fields = {
+                    "L03b_001",
+                    "L03b_002",
+                    "L03b_003",
+                }
+
+                if not required_fields.issubset(layer_fields):
+                    data_name = self.tr("land use maps")
+                    msg = (
+                        self.tr("%1 cannot be loaded as %2 data.")
+                        .replace("%1", shp_file)
+                        .replace("%2", data_name)
+                    )
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # 一時メモリレイヤを作成し、Shapefileのデータを取り込み
+                temp_layer = QgsVectorLayer(
+                    f"Polygon?crs={layer.crs().authid()}",
+                    "land_use_maps",
+                    "memory",
+                )
+                temp_provider = temp_layer.dataProvider()
+
+                # 必要なフィールドを追加
+                temp_provider.addAttributes(
+                    [
+                        QgsField("code", QVariant.String),
+                        QgsField("type", QVariant.String),
+                        QgsField("snap_date", QVariant.String),
+                    ]
+                )
+                temp_layer.updateFields()
+
+                # フィーチャの追加
+                for feature in layer.getFeatures():
+                    if self.check_canceled():
+                        return  # キャンセルチェック
+                    new_feature = QgsFeature()
+                    new_feature.setGeometry(feature.geometry())
+
+                    # 属性データのマッピング
+                    attributes = [
+                        feature["L03b_001"],  # code
+                        feature["L03b_002"],  # type
+                        feature["L03b_003"],  # snap_date
+                    ]
+                    new_feature.setAttributes(attributes)
+                    temp_provider.addFeature(new_feature)
+
+                layers.append(temp_layer)
+
+            if not layers:
+                raise Exception(
+                    "有効な土地利用細分化メッシュのShapefileが見つかりませんでした。"
+                )
+
+            # 複数のレイヤをマージ
+            merged_layer = self.__merge_layers(layers)
+
+            # land_use_mapsレイヤをGeoPackageに保存
+            if not self.gpkg_manager.add_layer(
+                merged_layer, "land_use_maps", "土地利用細分化メッシュ"
+            ):
+                raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+            data_name = self.tr("land use maps")
+            msg = self.tr(
+                "%1 data generation completed."
+            ).replace("%1", data_name)
+            QgsMessageLog.logMessage(
+                msg,
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            return True
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
+
+    def create_change_maps(self):
+        """変化度マップ 作成"""
+        try:
+            # base_path 配下の「13_変化度マップ（建物変化）」フォルダを再帰的に探索してShapefileを収集
+            change_maps_folder = os.path.join(self.base_path, "13_変化度マップ（建物変化）")
+            all_shp_files = self.__get_shapefiles(change_maps_folder)
+            
+            # 建物変化新築のファイルのみをフィルタリング
+            shp_files = [
+                shp_file for shp_file in all_shp_files
+                if "変化度マップ_建物変化-新築" in os.path.basename(shp_file)
+            ]
+
+            # レイヤを格納するリスト
+            layers = []
+
+            if not shp_files:
+                data_name = self.tr("change maps")
+                msg = (
+                    self.tr("No building change Shapefile found for the %1. Creating empty layer.")
+                    .replace("%1", data_name)
+                )
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+                
+                # 空のレイヤを作成
+                empty_layer = QgsVectorLayer(
+                    "Polygon", "change_maps", "memory"
+                )
+                empty_provider = empty_layer.dataProvider()
+                # フィールドを追加
+                empty_provider.addAttributes(
+                    [
+                        QgsField("code", QVariant.String),
+                        QgsField("type", QVariant.String),
+                        QgsField("level", QVariant.Int),
+                        QgsField("old_date", QVariant.String),
+                        QgsField("new_date", QVariant.String),
+                    ]
+                )
+                empty_layer.updateFields()
+                
+                # 空のレイヤをGeoPackageに保存
+                if not self.gpkg_manager.add_layer(
+                    empty_layer, "change_maps", "変化度マップ"
+                ):
+                    raise Exception(self.tr("Failed to add layer to GeoPackage."))
+                
+                return True
+
+            for shp_file in shp_files:
+                if self.check_canceled():
+                    return  # キャンセルチェック
+                encoding = self.__detect_encoding(shp_file)
+
+                # Shapefile 読み込み
+                layer = QgsVectorLayer(
+                    shp_file, os.path.basename(shp_file), "ogr"
+                )
+                layer.setProviderEncoding(encoding)
+
+                if not layer.isValid():
+                    msg = self.tr(
+                        "Failed to load layer: %1"
+                    ).replace("%1", shp_file)
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # Shapefileの属性フィールドバリデーション
+                layer_fields = set(layer.fields().names())
+                required_fields = {
+                    "コード",
+                    "変化種別",
+                    "変化度",
+                    "旧撮影日",
+                    "新撮影日",
+                }
+
+                if not required_fields.issubset(layer_fields):
+                    missing_fields = required_fields - layer_fields
+                    available_fields = layer_fields
+                    
+                    data_name = self.tr("change maps")
+                    msg = (
+                        self.tr("%1 cannot be loaded as %2 data.")
+                        .replace("%1", shp_file)
+                        .replace("%2", data_name)
+                    )
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    
+                    # 不足しているフィールドをログ出力
+                    missing_msg = self.tr(
+                        "Missing required fields: %1"
+                    ).replace("%1", str(missing_fields))
+                    QgsMessageLog.logMessage(
+                        missing_msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    
+                    # 利用可能なフィールドをログ出力
+                    available_msg = self.tr(
+                        "Available fields in shapefile: %1"
+                    ).replace("%1", str(list(available_fields)))
+                    QgsMessageLog.logMessage(
+                        available_msg,
+                        self.tr("Plugin"),
+                        Qgis.Info,
+                    )
+                    continue
+
+                # 一時メモリレイヤを作成し、Shapefileのデータを取り込み
+                temp_layer = QgsVectorLayer(
+                    f"Polygon?crs={layer.crs().authid()}",
+                    "change_maps",
+                    "memory",
+                )
+                temp_provider = temp_layer.dataProvider()
+
+                # 必要なフィールドを追加
+                temp_provider.addAttributes(
+                    [
+                        QgsField("code", QVariant.String),
+                        QgsField("type", QVariant.String),
+                        QgsField("level", QVariant.Int),
+                        QgsField("old_date", QVariant.String),
+                        QgsField("new_date", QVariant.String),
+                    ]
+                )
+                temp_layer.updateFields()
+
+                # フィーチャの追加
+                for feature in layer.getFeatures():
+                    if self.check_canceled():
+                        return  # キャンセルチェック
+                    new_feature = QgsFeature()
+                    new_feature.setGeometry(feature.geometry())
+
+                    # 属性データのマッピング
+                    attributes = [
+                        feature["コード"],      # code
+                        feature["変化種別"],    # type
+                        feature["変化度"],      # level
+                        feature["旧撮影日"],    # old_date
+                        feature["新撮影日"],    # new_date
+                    ]
+                    new_feature.setAttributes(attributes)
+                    temp_provider.addFeature(new_feature)
+
+                layers.append(temp_layer)
+
+            if not layers:
+                # フィルタリング後にファイルがない場合も空のレイヤを作成
+                empty_layer = QgsVectorLayer(
+                    "Polygon", "change_maps", "memory"
+                )
+                empty_provider = empty_layer.dataProvider()
+                empty_provider.addAttributes(
+                    [
+                        QgsField("code", QVariant.String),
+                        QgsField("type", QVariant.String),
+                        QgsField("level", QVariant.String),
+                        QgsField("old_date", QVariant.String),
+                        QgsField("new_date", QVariant.String),
+                    ]
+                )
+                empty_layer.updateFields()
+                
+                if not self.gpkg_manager.add_layer(
+                    empty_layer, "change_maps", "変化度マップ"
+                ):
+                    raise Exception(self.tr("Failed to add layer to GeoPackage."))
+                
+                return True
+
+            # 複数のレイヤをマージ
+            merged_layer = self.__merge_layers(layers)
+
+            # change_mapsレイヤをGeoPackageに保存
+            if not self.gpkg_manager.add_layer(
+                merged_layer, "change_maps", "変化度マップ"
+            ):
+                raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+            data_name = self.tr("change maps")
+            msg = self.tr(
+                "%1 data generation completed."
+            ).replace("%1", data_name)
+            QgsMessageLog.logMessage(
+                msg,
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            return True
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
 
     def create_urbun_planning_area(self):
         """都市計画区域 作成"""
         try:
-            # base_path 配下の「誘導区域」フォルダを再帰的に探索してShapefileを収集
-            induction_area_folder = os.path.join(self.base_path, "誘導区域")
+            # base_path 配下の「21_誘導区域」フォルダを再帰的に探索してShapefileを収集
+            induction_area_folder = os.path.join(self.base_path, "21_誘導区域")
             shp_files = self.__get_shapefiles(induction_area_folder)
 
             if not shp_files:
@@ -1022,7 +1709,7 @@ class AreaDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                return False
+                raise Exception(msg)
 
             # レイヤを格納するリスト
             layers = []
@@ -1052,18 +1739,18 @@ class AreaDataGenerator:
                 # Shapefileの属性フィールドバリデーション
                 layer_fields = set(layer.fields().names())
                 required_fields = {
-                    "tokeiname",
-                    "Type",
-                    "kubunID",
+                    "TokeiName",
+                    "TokeiType",
+                    "TokeiCode",
                     "Pref",
                     "Citycode",
                     "Cityname",
-                    "当初決定日",
-                    "最終告示日",
-                    "決定区分",
-                    "決定者",
-                    "告示番号S",
-                    "告示番号L",
+                    "INDate",
+                    "FNDate",
+                    "ValidType",
+                    "Custodian",
+                    "INNumber",
+                    "FNNumber",
                 }
 
                 if not required_fields.issubset(layer_fields):
@@ -1099,7 +1786,7 @@ class AreaDataGenerator:
                         QgsField("city_name", QVariant.String),
                         QgsField("first_decision_date", QVariant.String),
                         QgsField("last_decision_date", QVariant.String),
-                        QgsField("decision_type", QVariant.Int),
+                        QgsField("decision_type", QVariant.String),
                         QgsField("decider", QVariant.String),
                         QgsField("notice_number_s", QVariant.String),
                         QgsField("notice_number_l", QVariant.String),
@@ -1116,18 +1803,18 @@ class AreaDataGenerator:
 
                     # 属性データのマッピング
                     attributes = [
-                        feature["tokeiname"],  # tokei_name
-                        feature["type"],  # type
-                        feature["kubunID"],  # type_id
+                        feature["TokeiName"],  # tokei_name
+                        feature["TokeiType"],  # type
+                        feature["TokeiCode"],  # type_id
                         feature["Pref"],  # prefecture_name
                         feature["Citycode"],  # city_code
                         feature["Cityname"],  # city_name
-                        feature["当初決定日"],  # first_decision_date
-                        feature["最終告示日"],  # last_decision_date
-                        feature["決定区分"],  # decision_type
-                        feature["決定者"],  # decider
-                        feature["告示番号S"],  # notice_number_s
-                        feature["告示番号L"],  # notice_number_l
+                        feature["INDate"],  # first_decision_date
+                        feature["FNDate"],  # last_decision_date
+                        feature["ValidType"],  # decision_type
+                        feature["Custodian"],  # decider
+                        feature["INNumber"],  # notice_number_s
+                        feature["FNNumber"],  # notice_number_l
                     ]
                     new_feature.setAttributes(attributes)
                     temp_provider.addFeature(new_feature)
@@ -1161,17 +1848,17 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_land_use_area(self):
         """用途地域 作成"""
         try:
-            # base_path 配下の「誘導区域」フォルダを再帰的に探索してShapefileを収集
-            induction_area_folder = os.path.join(self.base_path, "誘導区域")
+            # base_path 配下の「21_誘導区域」フォルダを再帰的に探索してShapefileを収集
+            induction_area_folder = os.path.join(self.base_path, "21_誘導区域")
             shp_files = self.__get_shapefiles(induction_area_folder)
 
             if not shp_files:
@@ -1185,7 +1872,7 @@ class AreaDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                return False
+                raise Exception(msg)
 
             # レイヤを格納するリスト
             layers = []
@@ -1215,19 +1902,19 @@ class AreaDataGenerator:
                 # Shapefileの属性フィールドバリデーション
                 layer_fields = set(layer.fields().names())
                 required_fields = {
-                    "用途地域",
-                    "YoutoID",
-                    "容積率",
-                    "建ぺい率",
+                    "YoutoName",
+                    "YoutoCode",
+                    "FAR",
+                    "BCR",
                     "Pref",
                     "Citycode",
                     "Cityname",
-                    "当初決定日",
-                    "最終告示日",
-                    "決定区分",
-                    "決定者",
-                    "告示番号S",
-                    "告示番号L",
+                    "INDate",
+                    "FNDate",
+                    "ValidType",
+                    "Custodian",
+                    "INNumber",
+                    "FNNumber",
                 }
 
                 if not required_fields.issubset(layer_fields):
@@ -1281,19 +1968,19 @@ class AreaDataGenerator:
 
                     # 属性データのマッピング
                     attributes = [
-                        feature["用途地域"],  # type
-                        feature["YoutoID"],  # type_id
-                        feature["容積率"],  # area_ratio
-                        feature["建ぺい率"],  # bulding_coverage_ratio
+                        feature["YoutoName"],  # type
+                        feature["YoutoCode"],  # type_id
+                        feature["FAR"],  # area_ratio
+                        feature["BCR"],  # bulding_coverage_ratio
                         feature["Pref"],  # prefecture_name
                         feature["Citycode"],  # city_code
                         feature["Cityname"],  # city_name
-                        feature["当初決定日"],  # first_decision_date
-                        feature["最終告示日"],  # last_decision_date
-                        feature["決定区分"],  # decision_type
-                        feature["決定者"],  # decider
-                        feature["告示番号S"],  # notice_number_s
-                        feature["告示番号L"],  # notice_number_l
+                        feature["INDate"],  # first_decision_date
+                        feature["FNDate"],  # last_decision_date
+                        feature["ValidType"],  # decision_type
+                        feature["Custodian"],  # decider
+                        feature["INNumber"],  # notice_number_s
+                        feature["FNNumber"],  # notice_number_l
                     ]
                     new_feature.setAttributes(attributes)
                     temp_provider.addFeature(new_feature)
@@ -1327,18 +2014,18 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_hazard_area_planned_scale(self):
         """ハザードエリア計画規模 作成"""
         try:
-            # base_path 配下の「ハザードエリア計画規模」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「15_ハザードエリア計画規模」フォルダを再帰的に探索してShapefileを収集
             induction_area_folder = os.path.join(
-                self.base_path, "ハザードエリア計画規模"
+                self.base_path, "15_ハザードエリア計画規模"
             )
             shp_files = self.__get_shapefiles(induction_area_folder)
 
@@ -1493,18 +2180,18 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_hazard_area_max_scale(self):
         """ハザードエリア想定最大規模 作成"""
         try:
-            # base_path 配下の「ハザードエリア想定最大規模」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「16_ハザードエリア想定最大規模」フォルダを再帰的に探索してShapefileを収集
             induction_area_folder = os.path.join(
-                self.base_path, "ハザードエリア想定最大規模"
+                self.base_path, "16_ハザードエリア想定最大規模"
             )
             shp_files = self.__get_shapefiles(induction_area_folder)
 
@@ -1659,18 +2346,18 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_hazard_area_storm_surge(self):
         """ハザードエリア高潮浸水想定区域 作成"""
         try:
-            # base_path 配下の「ハザードエリア高潮浸水想定区域」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「17_ハザードエリア高潮浸水想定区域」フォルダを再帰的に探索してShapefileを収集
             induction_area_folder = os.path.join(
-                self.base_path, "ハザードエリア高潮浸水想定区域"
+                self.base_path, "17_ハザードエリア高潮浸水想定区域"
             )
             shp_files = self.__get_shapefiles(induction_area_folder)
 
@@ -1837,18 +2524,18 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_hazard_area_tsunami(self):
         """ハザードエリア津波浸水想定区域 作成"""
         try:
-            # base_path 配下の「ハザードエリア津波浸水想定区域」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「18_ハザードエリア津波浸水想定区域」フォルダを再帰的に探索してShapefileを収集
             induction_area_folder = os.path.join(
-                self.base_path, "ハザードエリア津波浸水想定区域"
+                self.base_path, "18_ハザードエリア津波浸水想定区域"
             )
             shp_files = self.__get_shapefiles(induction_area_folder)
 
@@ -2009,18 +2696,18 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_hazard_area_landslide(self):
         """ハザードエリア土砂災害 作成"""
         try:
-            # base_path 配下の「ハザードエリア土砂災害」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「19_ハザードエリア土砂災害」フォルダを再帰的に探索してShapefileを収集
             induction_area_folder = os.path.join(
-                self.base_path, "ハザードエリア土砂災害"
+                self.base_path, "19_ハザードエリア土砂災害"
             )
             shp_files = self.__get_shapefiles(induction_area_folder)
 
@@ -2199,18 +2886,18 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def create_hazard_area_floodplain(self):
         """ハザードエリア氾濫流 作成"""
         try:
-            # base_path 配下の「ハザードエリア氾濫流」フォルダを再帰的に探索してShapefileを収集
+            # base_path 配下の「20_ハザードエリア氾濫流」フォルダを再帰的に探索してShapefileを収集
             induction_area_folder = os.path.join(
-                self.base_path, "ハザードエリア氾濫流"
+                self.base_path, "20_ハザードエリア氾濫流"
             )
             shp_files = self.__get_shapefiles(induction_area_folder)
 
@@ -2365,11 +3052,11 @@ class AreaDataGenerator:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
-            return False
+            raise e
 
     def __merge_layers(self, layers):
         """複数のレイヤを1つにマージ"""
@@ -2409,7 +3096,12 @@ class AreaDataGenerator:
             with open(dbf_file, 'rb') as f:
                 raw_data = f.read()
                 result = chardet.detect(raw_data)
-                encoding = result['encoding']
+                encoding = result.get('encoding')
+                
+                # encodingがNoneの場合はデフォルトをUTF-8に
+                if not encoding:
+                    encoding = 'UTF-8'
+                    
                 if encoding == 'MacRoman':
                     msg = self.tr(
                         "%1 was detected. Using SHIFT_JIS for the file %2."
@@ -2425,6 +3117,17 @@ class AreaDataGenerator:
                     msg = self.tr(
                         "%1 was detected. Using SHIFT_JIS for the file %2."
                     ).replace("%1", "Windows-1254").replace("%2", dbf_file)
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Info,
+                    )
+                    encoding = 'SHIFT_JIS'
+
+                if encoding == 'Windows-1252':
+                    msg = self.tr(
+                        "%1 was detected. Using SHIFT_JIS for the file %2."
+                    ).replace("%1", "Windows-1252").replace("%2", dbf_file)
                     QgsMessageLog.logMessage(
                         msg,
                         self.tr("Plugin"),
@@ -2474,3 +3177,115 @@ class AreaDataGenerator:
             Qgis.Info,
         )
         return result['OUTPUT']
+
+    def update_induction_area(self):
+        """変更後モード用: 居住誘導区域を更新"""
+        try:
+            # 変更後GPKGからinduction_areasレイヤを読み込み
+            induction_layer = self.gpkg_manager.load_layer(
+                "induction_areas", "誘導区域", withload_project=False
+            )
+
+            if not induction_layer or not induction_layer.isValid():
+                raise Exception("induction_areasレイヤの読み込みに失敗しました。")
+
+            # type_id=31（居住誘導区域）以外のフィーチャを新しいメモリレイヤにコピー
+            memory_layer = QgsVectorLayer(
+                f"Polygon?crs={induction_layer.crs().authid()}",
+                "induction_areas",
+                "memory"
+            )
+            memory_layer.dataProvider().addAttributes(induction_layer.fields())
+            memory_layer.updateFields()
+
+            # type_id != 31 のフィーチャをコピー
+            features_to_keep = []
+            deleted_count = 0
+            for feature in induction_layer.getFeatures():
+                if feature["type_id"] != 31:
+                    new_feature = QgsFeature(memory_layer.fields())
+                    new_feature.setGeometry(feature.geometry())
+                    new_feature.setAttributes(feature.attributes())
+                    features_to_keep.append(new_feature)
+                else:
+                    deleted_count += 1
+
+            memory_layer.dataProvider().addFeatures(features_to_keep)
+
+            # 変更後誘導区域フォルダからShapefileを読み込み
+            shp_files = self.__get_shapefiles(self.induction_area_folder)
+
+            if not shp_files:
+                raise Exception(
+                    f"変更後誘導区域フォルダにShapefileが見つかりません: {self.induction_area_folder}"
+                )
+
+            # 新しい居住誘導区域（type_id=31）を追加
+            for shp_file in shp_files:
+                if self.check_canceled():
+                    return
+
+                encoding = self.__detect_encoding(shp_file)
+                layer = QgsVectorLayer(shp_file, os.path.basename(shp_file), "ogr")
+                layer.setProviderEncoding(encoding)
+
+                if not layer.isValid():
+                    QgsMessageLog.logMessage(
+                        f"Shapefileの読み込みに失敗: {shp_file}",
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    continue
+
+                # フィーチャをtype_id=31として追加
+                for feature in layer.getFeatures():
+                    if self.check_canceled():
+                        return
+
+                    # ジオメトリの妥当性チェックと修正
+                    geom = feature.geometry()
+                    if not geom.isGeosValid():
+                        geom = geom.makeValid()
+                        QgsMessageLog.logMessage(
+                            f"無効なジオメトリを修正しました: {shp_file}",
+                            self.tr("Plugin"),
+                            Qgis.Warning,
+                        )
+
+                    new_feature = QgsFeature(memory_layer.fields())
+                    new_feature.setGeometry(geom)
+
+                    # 属性を設定（type_id=31固定）
+                    new_feature["type_id"] = 31
+                    new_feature["type"] = "居住誘導区域"
+
+                    # その他のフィールドがあれば設定
+                    if "Pref" in layer.fields().names():
+                        new_feature["prefecture_name"] = feature["Pref"]
+                    if "Citycode" in layer.fields().names():
+                        new_feature["city_code"] = feature["Citycode"]
+                    if "Cityname" in layer.fields().names():
+                        new_feature["city_name"] = feature["Cityname"]
+
+                    memory_layer.dataProvider().addFeatures([new_feature])
+
+            # 更新したメモリレイヤをGeoPackageに保存
+            if not self.gpkg_manager.add_layer(
+                memory_layer, "induction_areas", "誘導区域", withload_project=False
+            ):
+                raise Exception("更新したinduction_areasレイヤの保存に失敗しました。")
+
+            QgsMessageLog.logMessage(
+                "変更後の居住誘導区域を更新しました。",
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+            return True
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e

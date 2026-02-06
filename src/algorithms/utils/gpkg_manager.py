@@ -13,6 +13,7 @@ from qgis.core import (
     QgsMessageLog,
     Qgis,
     QgsProject,
+    QgsCoordinateTransformContext,
 )
 from PyQt5.QtCore import QCoreApplication
 from osgeo import ogr
@@ -20,49 +21,32 @@ from osgeo import ogr
 
 class GpkgManager:
     """Geopackageファイル管理"""
-    _instance = None
 
-    def __new__(
-        cls,
-        base_path=None,
+    def __init__(
+        self,
+        base_path,
         gpkg_name="PlateauStatisticsVisualizationPlugin.gpkg",
     ):
-        if cls._instance is None:
-            cls._instance = super(GpkgManager, cls).__new__(cls)
-            cls._instance.base_path = base_path
-            cls._instance.gpkg_name = gpkg_name
-            cls._instance.geopackage_path = os.path.join(base_path, gpkg_name)
-        return cls._instance
+        """初期化"""
+        self.base_path = base_path
+        self.gpkg_name = gpkg_name
+        self.geopackage_path = os.path.join(base_path, gpkg_name)
+        # プロジェクトに追加すべきレイヤ情報を保持するリスト
+        self.layers_to_add = []
 
     def tr(self, message):
         """翻訳用のメソッド"""
         return QCoreApplication.translate("GpkgManager", message)
 
-    def init(
-        self, base_path, gpkg_name="PlateauStatisticsVisualizationPlugin.gpkg"
-    ):
-        """初期化"""
-        # 最初期化
-        self.base_path = base_path
-        self.gpkg_name = gpkg_name
-        self.geopackage_path = os.path.join(base_path, gpkg_name)
-        QgsMessageLog.logMessage(
-            self.tr(
-                "GeoPackage Manager has been reset. New path: %1."
-            ).replace("%1", self.geopackage_path),
-            self.tr("Plugin"),
-            Qgis.Info,
-        )
-
     def make_gpkg(self):
         """GeoPackage作成"""
         try:
-            # 既存のGeoPackageから読み込んだレイヤをレイヤパネルから削除
-            for layer in QgsProject.instance().mapLayers().values():
-                if os.path.normpath(layer.source()).startswith(
-                    os.path.normpath(self.geopackage_path)
-                ):
-                    QgsProject.instance().removeMapLayer(layer)
+            # # 既存のGeoPackageから読み込んだレイヤをレイヤパネルから削除
+            # for layer in QgsProject.instance().mapLayers().values():
+            #     if os.path.normpath(layer.source()).startswith(
+            #         os.path.normpath(self.geopackage_path)
+            #     ):
+            #         QgsProject.instance().removeMapLayer(layer)
 
             # GeoPackageが存在しない場合、新規作成する
             if not os.path.exists(self.geopackage_path):
@@ -75,7 +59,7 @@ class GpkgManager:
                 error = QgsVectorFileWriter.writeAsVectorFormatV3(
                     temp_layer,
                     self.geopackage_path,
-                    QgsProject.instance().transformContext(),
+                    QgsCoordinateTransformContext(),
                     options,
                 )
 
@@ -97,7 +81,7 @@ class GpkgManager:
         except Exception as e:
             # エラーメッセージのログ出力
             QgsMessageLog.logMessage(
-                self.tr("GeoPackage initialization error: %1").replace("%1", e),
+                self.tr("GeoPackage initialization error: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -111,24 +95,19 @@ class GpkgManager:
             display_name = (
                 alias if alias else layer_name
             )  # aliasが指定されていればそれを使用
+
             gpkg_layer = QgsVectorLayer(uri, display_name, "ogr")
 
             if not gpkg_layer.isValid():
                 return None
 
             if withload_project:
-                # レイヤをプロジェクトに追加
-                added_layer = QgsProject.instance().addMapLayer(
-                    gpkg_layer, False
-                )  # Falseでレイヤツリーに自動追加を避ける
-
-                # レイヤツリー追加、可視性をオフに設定
-                root = QgsProject.instance().layerTreeRoot()
-                layer_tree_layer = root.insertLayer(0, added_layer)
-                layer_tree_layer.setItemVisibilityChecked(False)
-
+                self.layers_to_add.append({
+                    'layer_name': layer_name,
+                    'alias': alias
+                })
                 QgsMessageLog.logMessage(
-                    self.tr("GeoPackage layer %1 added to the layer panel.")
+                    self.tr("GeoPackage layer %1 registered.")
                     .replace("%1", display_name),
                     self.tr("Plugin"),
                     Qgis.Info,
@@ -146,7 +125,7 @@ class GpkgManager:
         except Exception as e:
             QgsMessageLog.logMessage(
                 self.tr("Error loading GeoPackage layer: %1")
-                .replace("%1", e),
+                .replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -165,7 +144,7 @@ class GpkgManager:
             error = QgsVectorFileWriter.writeAsVectorFormatV3(
                 layer,
                 self.geopackage_path,
-                QgsProject.instance().transformContext(),
+                QgsCoordinateTransformContext(),
                 options,
             )
 
@@ -188,7 +167,7 @@ class GpkgManager:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -225,7 +204,7 @@ class GpkgManager:
 
         except Exception as e:
             QgsMessageLog.logMessage(
-                self.tr("Error deleting GeoPackage layer: %1").replace("%1", e),
+                self.tr("Error deleting GeoPackage layer: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -257,3 +236,67 @@ class GpkgManager:
         gpkg.Close()
 
         return layer_names
+
+    def add_layers_to_project(self):
+        """
+        保持しているレイヤ情報を使ってプロジェクトにレイヤを追加する
+        """
+        for layer_info in self.layers_to_add:
+            layer_name = layer_info['layer_name']
+            alias = layer_info['alias']
+            display_name = alias if alias else layer_name
+
+            # GeoPackageからレイヤを読み込み
+            uri = f"{self.geopackage_path}|layername={layer_name}"
+            gpkg_layer = QgsVectorLayer(uri, display_name, "ogr")
+
+            if not gpkg_layer.isValid():
+                QgsMessageLog.logMessage(
+                    self.tr("Failed to load layer %1 from GeoPackage")
+                    .replace("%1", display_name),
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                continue
+
+            # 既にレイヤパネルに同じGeoPackageレイヤが存在するかチェック
+            project = QgsProject.instance()
+            layer_exists = False
+            for existing_layer in project.mapLayers().values():
+                try:
+                    if (os.path.normpath(existing_layer.source()).startswith(
+                        os.path.normpath(self.geopackage_path)
+                    ) and existing_layer.name() == display_name):
+                        layer_exists = True
+                        QgsMessageLog.logMessage(
+                            self.tr("GeoPackage layer %1 already exists. Skipping.")
+                            .replace("%1", display_name),
+                            self.tr("Plugin"),
+                            Qgis.Info,
+                        )
+                        break
+                except:
+                    continue
+
+            if layer_exists:
+                continue
+
+            # レイヤをプロジェクトに追加
+            added_layer = QgsProject.instance().addMapLayer(
+                gpkg_layer, False
+            )
+
+            # レイヤツリー追加、可視性をオフに設定
+            root = QgsProject.instance().layerTreeRoot()
+            layer_tree_layer = root.insertLayer(0, added_layer)
+            layer_tree_layer.setItemVisibilityChecked(False)
+
+            QgsMessageLog.logMessage(
+                self.tr("GeoPackage layer %1 added to the layer panel.")
+                .replace("%1", display_name),
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+
+        # 追加完了後、リストをクリア
+        self.layers_to_add = []

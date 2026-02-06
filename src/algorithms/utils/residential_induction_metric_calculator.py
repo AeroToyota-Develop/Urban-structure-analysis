@@ -23,11 +23,11 @@ from .gpkg_manager import GpkgManager
 
 class ResidentialInductionMetricCalculator:
     """居住誘導関連評価指標算出機能"""
-    def __init__(self, base_path, check_canceled_callback=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
         self.base_path = base_path
         self.check_canceled = check_canceled_callback
 
-        self.gpkg_manager = GpkgManager._instance
+        self.gpkg_manager = gpkg_manager
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -36,17 +36,30 @@ class ResidentialInductionMetricCalculator:
     def calc(self):
         """算出処理"""
         try:
+
             # 建物
             buildings_layer = self.gpkg_manager.load_layer(
                 'buildings', None, withload_project=False
             )
+
             # 誘導区域
             induction_layer = self.gpkg_manager.load_layer(
                 'induction_areas', None, withload_project=False
             )
+
             # 目標人口
             population_target_settings_layer = self.gpkg_manager.load_layer(
                 'population_target_settings', None, withload_project=False
+            )
+
+            # 行政区域
+            zones_layer = self.gpkg_manager.load_layer(
+                'zones', None, withload_project=False
+            )
+
+            # 仮想居住誘導区域
+            hypothetical_residential_layer = self.gpkg_manager.load_layer(
+                'hypothetical_residential_areas', None, withload_project=False
             )
 
             if not buildings_layer:
@@ -60,6 +73,10 @@ class ResidentialInductionMetricCalculator:
             if not population_target_settings_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "population_target_settings"))
+            
+            if not zones_layer:
+                raise Exception(self.tr("The %1 layer was not found.")
+                    .replace("%1", "zones"))
 
             comparative_year = None
             target_population = None
@@ -99,18 +116,94 @@ class ResidentialInductionMetricCalculator:
             centroid_layer_data.addAttributes(buildings_layer.fields())
             centroid_layer.updateFields()
 
-            # 建物の重心を計算して一時レイヤに追加
+            # is_target=1のzonesを取得してフィルタリング用のレイヤを作成
+            target_zones_layer = None
+            if zones_layer:
+                target_zones_layer = QgsVectorLayer(
+                    "Polygon?crs=" + zones_layer.crs().authid(),
+                    "target_zones",
+                    "memory",
+                )
+                target_zones_data = target_zones_layer.dataProvider()
+                target_zones_data.addAttributes(zones_layer.fields())
+                target_zones_layer.updateFields()
+                
+                target_zones_features = []
+                for zone_feature in zones_layer.getFeatures():
+                    if zone_feature["is_target"] == 1:
+                        target_zones_features.append(zone_feature)
+                
+                if target_zones_features:
+                    target_zones_data.addFeatures(target_zones_features)
+                    target_zones_layer.updateExtents()
+                    msg = self.tr("Using %1 target zones (is_target=1) for calculation.").replace("%1", str(len(target_zones_features)))
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Info,
+                    )
+                else:
+                    # is_target=1のゾーンがない場合は集計対象なし
+                    msg = self.tr("No target zones (is_target=1) found. No calculation will be performed.")
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    target_zones_layer = None
+
+            # target_zones_layerがない場合は集計を行わない
+            if not target_zones_layer:
+                msg = self.tr("No target zones available. Returning empty results.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+                # 空の結果を返す
+                return []
+            
+            # 建物の重心を計算
+            centroids_result = processing.run(
+                "native:centroids",
+                {
+                    'INPUT': buildings_layer,
+                    'ALL_PARTS': False,
+                    'OUTPUT': 'memory:'
+                }
+            )
+            centroids_all = centroids_result['OUTPUT']
+
+            if self.check_canceled():
+                return  # キャンセルチェック
+
+            # target_zones内の重心のみを抽出
+            if target_zones_layer and target_zones_layer.featureCount() > 0:
+                joined_result = processing.run(
+                    "native:joinattributesbylocation",
+                    {
+                        'INPUT': centroids_all,
+                        'JOIN': target_zones_layer,
+                        'PREDICATE': [5],  # within
+                        'JOIN_FIELDS': [],  # フィールド結合は不要
+                        'METHOD': 0,
+                        'DISCARD_NONMATCHING': True,  # マッチしないものは除外
+                        'PREFIX': '',
+                        'OUTPUT': 'memory:'
+                    }
+                )
+                centroids_in_target = joined_result['OUTPUT']
+            else:
+                # target_zonesがない場合は全重心を使用
+                centroids_in_target = centroids_all
+
+            if self.check_canceled():
+                return  # キャンセルチェック
+
+            # centroid_layerにフィーチャを追加
             centroid_features = []
-            for building_feature in buildings_layer.getFeatures():
-                if self.check_canceled():
-                    return  # キャンセルチェック
-                centroid_geom = building_feature.geometry().centroid()
-                new_feature = QgsFeature()
-                new_feature.setGeometry(centroid_geom)
-                new_feature.setAttributes(
-                    building_feature.attributes()
-                )  # 元の属性をコピー
-                centroid_features.append(new_feature)
+            for feature in centroids_in_target.getFeatures():
+                centroid_features.append(feature)
 
             centroid_layer_data.addFeatures(centroid_features)
             centroid_layer.updateExtents()
@@ -144,21 +237,87 @@ class ResidentialInductionMetricCalculator:
             # データリストを作成
             data_list = []
 
-            # 居住誘導区域（type_id=31）を取得
-            residential_area_layer = QgsVectorLayer(
-                "Polygon?crs=" + induction_layer.crs().authid(),
-                "residential_area",
-                "memory",
-            )
-            residential_area_data = residential_area_layer.dataProvider()
+            # 居住誘導区域（type_id=31）を取得、なければ仮想居住誘導区域を使用
+            # まずtype_id=31の居住誘導区域を探す
+            has_residential_area = False
+            use_hypothetical_areas = False
             residential_area_features = []
             for induction_feature in induction_layer.getFeatures():
                 if induction_feature["type_id"] == 31:
                     residential_area_features.append(induction_feature)
+                    has_residential_area = True
 
-            # 新しい一時レイヤに追加
-            residential_area_data.addFeatures(residential_area_features)
-            residential_area_layer.updateExtents()
+            # 居住誘導区域がある場合は新しいレイヤを作成
+            if has_residential_area:
+                residential_area_layer = QgsVectorLayer(
+                    "Polygon?crs=" + induction_layer.crs().authid(),
+                    "residential_area",
+                    "memory",
+                )
+                residential_area_data = residential_area_layer.dataProvider()
+                residential_area_data.addFeatures(residential_area_features)
+                residential_area_layer.updateExtents()
+            # 居住誘導区域がない場合は仮想居住誘導区域をそのまま使用
+            elif hypothetical_residential_layer:
+                msg = self.tr("No residential induction area (type_id=31) found. Using hypothetical residential areas.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+                residential_area_layer = hypothetical_residential_layer
+                use_hypothetical_areas = True
+            else:
+                msg = self.tr("No residential induction area (type_id=31) or hypothetical residential areas found.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                residential_area_layer = None
+
+            # residential_area_layerがない場合は処理を終了
+            if not residential_area_layer:
+                msg = self.tr("No residential areas available. Returning empty results.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                return []
+
+            # target_zones_layerがある場合、居住誘導区域をtarget_zonesでクリップ
+            if target_zones_layer and residential_area_layer.featureCount() > 0:
+                # CRSが異なる場合は再投影してからクリップ
+                if residential_area_layer.crs() != target_zones_layer.crs():
+                    reprojected = processing.run(
+                        "native:reprojectlayer",
+                        {
+                            'INPUT': residential_area_layer,
+                            'TARGET_CRS': target_zones_layer.crs(),
+                            'OUTPUT': 'memory:'
+                        }
+                    )['OUTPUT']
+                    residential_area_layer = reprojected
+
+                clipped_residential = processing.run(
+                    "native:clip",
+                    {
+                        'INPUT': residential_area_layer,
+                        'OVERLAY': target_zones_layer,
+                        'OUTPUT': 'memory:'
+                    }
+                )['OUTPUT']
+
+                # クリップされたレイヤを使用
+                residential_area_layer = clipped_residential
+
+                msg = self.tr("Residential induction areas clipped to target zones.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
 
             # 空間インデックス作成
             processing.run(
@@ -170,33 +329,48 @@ class ResidentialInductionMetricCalculator:
                 3857
             )  # メートル単位の座標系 (EPSG:3857)
 
-            # CRS変換
-            transformed_layer = processing.run(
+            # 居住誘導区域の面積計算用にCRS変換
+            transformed_residential_layer = processing.run(
+                "native:reprojectlayer",
+                {
+                    'INPUT': residential_area_layer,
+                    'TARGET_CRS': crs_dest,
+                    'OUTPUT': 'memory:',
+                },
+            )['OUTPUT']
+            
+            # 立地適正化計画区域の面積計算用にCRS変換（必要な場合）
+            transformed_induction_layer = processing.run(
                 "native:reprojectlayer",
                 {
                     'INPUT': induction_layer,
                     'TARGET_CRS': crs_dest,
-                    'OUTPUT': 'memory:',  # メモリーレイヤとして変換後のレイヤを保持
+                    'OUTPUT': 'memory:',
                 },
             )['OUTPUT']
 
             # 面積計算
-            area = 0  # 居住誘導区域の面積(ha)
+            area = 0  # 居住誘導区域の面積(ha) - target_zones内のみ
+            for feature in transformed_residential_layer.getFeatures():
+                # 面積計算 (ヘクタール単位へ変換: 1ヘクタール = 10,000平方メートル)
+                area += feature.geometry().area() / 10000
+
+            # 立地適正化計画区域の面積計算
             outside_area = 0  # 立地適正化計画区域の面積(ha)
-
-            for induction_feature in transformed_layer.getFeatures():
-                # 居住誘導区域（type_id=31）
-                if induction_feature["type_id"] == 31:
-                    # 面積計算 (ヘクタール単位へ変換: 1ヘクタール = 10,000平方メートル)
-                    area += induction_feature.geometry().area() / 10000
-
+            for induction_feature in transformed_induction_layer.getFeatures():
                 # 立地適正化計画区域（type_id=0）
                 if induction_feature["type_id"] == 0:
-                    # 面積計算 (ヘクタール単位へ変換)
-                    outside_area += induction_feature.geometry().area() / 10000
-
-            area = self.round_or_na(area, 1)
-            outside_area = self.round_or_na(outside_area, 1)
+                    # target_zones_layerがある場合はクリップして計算
+                    if target_zones_layer:
+                        # 個別にクリップして面積を計算
+                        for zone_feature in target_zones_layer.getFeatures():
+                            intersection = induction_feature.geometry().intersection(zone_feature.geometry())
+                            if not intersection.isEmpty():
+                                # CRS変換後の座標系で面積計算
+                                outside_area += intersection.area() / 10000
+                    else:
+                        # 面積計算 (ヘクタール単位へ変換)
+                        outside_area += induction_feature.geometry().area() / 10000
 
             # 居住誘導区域内の建物を取得
             result = processing.run(
@@ -204,7 +378,7 @@ class ResidentialInductionMetricCalculator:
                 {
                     'INPUT': centroid_layer,
                     'JOIN': residential_area_layer,
-                    'PREDICATE': [5],  # overlap
+                    'PREDICATE': [5],  # within
                     'JOIN_FIELDS': [],
                     'METHOD': 0,
                     'OUTPUT': 'TEMPORARY_OUTPUT',
@@ -259,90 +433,90 @@ class ResidentialInductionMetricCalculator:
                 )
 
                 # 居住誘導区域外人口
-                outside_area_pop = total_pop - area_pop
+                # outside_area_pop = total_pop - area_pop
 
-                # 居住誘導区域内人口割合（Rate_Pop）と居住誘導区域外人口割合（Outside TheArea_Rate_Pop）
+                # 居住誘導区域内人口割合（Rate_Pop）
                 rate_pop = (
-                    self.round_or_na((area_pop / total_pop) * 100, 2)
+                    self.round_or_na(area_pop / total_pop, 3)
                     if total_pop > 0
                     else 0
                 )
-                outside_rate_pop = (
-                    self.round_or_na((outside_area_pop / total_pop) * 100, 2)
-                    if total_pop > 0
-                    else 0
-                )
+                # outside_rate_pop = (
+                #     self.round_or_na((outside_area_pop / total_pop) * 100, 2)
+                #     if total_pop > 0
+                #     else 0
+                # )
 
-                # 居住誘導区域内と外の人口密度を計算
+                # 居住誘導区域内人口密度を計算
                 pop_area_density = (
                     self.round_or_na(area_pop / area, 2) if area > 0 else '―'
                 )  # haあたりの人口密度
-                pop_outside_area_density = (
-                    self.round_or_na(outside_area_pop / outside_area, 2)
-                    if outside_area > 0
-                    else '―'
-                )
+                # pop_outside_area_density = (
+                #     self.round_or_na(outside_area_pop / outside_area, 2)
+                #     if outside_area > 0
+                #     else '―'
+                # )
 
-                # 各年齢層のフィールド名を設定
-                age_fields = {
-                    "Age0-14s": f"{year}_age_0_14",
-                    "Age15-64s": f"{year}_age_15_64",
-                    "Age65AndOver": f"{year}_age_65_",
-                    "Age75AndOver": f"{year}_age_75_total",
-                    "Age85AndOver": f"{year}_age_85_total",
-                    "Age95AndOver": f"{year}_age_95_total",
-                }
+                # # 各年齢層のフィールド名を設定
+                # age_fields = {
+                #     "Age0-14s": f"{year}_age_0_14",
+                #     "Age15-64s": f"{year}_age_15_64",
+                #     "Age65AndOver": f"{year}_age_65_",
+                #     "Age75AndOver": f"{year}_age_75_total",
+                #     "Age85AndOver": f"{year}_age_85_total",
+                #     "Age95AndOver": f"{year}_age_95_total",
+                # }
 
-                area_pop_by_age = {}
-                rate_pop_by_age = {}
-                density_pop_by_age = {}
-                for age_key, age_field in age_fields.items():
-                    # 各年齢層の人口関連計算
-                    # 人口
-                    age_pop_result = residential_buildings.aggregate(
-                        QgsAggregateCalculator.Aggregate.Sum,
-                        age_field,
-                        QgsAggregateCalculator.AggregateParameters(),
-                    )
-                    area_pop_by_age[f"Pop_Area_{age_key}"] = (
-                        int(age_pop_result[0])
-                        if age_pop_result[0] is not None
-                        else 0
-                    )
-                    # 人口割合
-                    rate_pop_by_age[f"Rate_Pop_Area_{age_key}"] = (
-                        self.round_or_na(
-                            (area_pop_by_age[f"Pop_Area_{age_key}"] / total_pop)
-                            * 100,
-                            2,
-                        )
-                        if total_pop > 0
-                        else '―'
-                    )
-                    # 人口密度
-                    density_pop_by_age[f"Rate_Pop_Area_Density_{age_key}"] = (
-                        self.round_or_na(
-                            area_pop_by_age[f"Pop_Area_{age_key}"] / area, 1
-                        )
-                        if area > 0
-                        else '―'
-                    )
+                # area_pop_by_age = {}
+                # rate_pop_by_age = {}
+                # density_pop_by_age = {}
+                # for age_key, age_field in age_fields.items():
+                #     # 各年齢層の人口関連計算
+                #     # 人口
+                #     age_pop_result = residential_buildings.aggregate(
+                #         QgsAggregateCalculator.Aggregate.Sum,
+                #         age_field,
+                #         QgsAggregateCalculator.AggregateParameters(),
+                #     )
+                #     area_pop_by_age[f"Pop_Area_{age_key}"] = (
+                #         int(age_pop_result[0])
+                #         if age_pop_result[0] is not None
+                #         else 0
+                #     )
+                #     # 人口割合
+                #     rate_pop_by_age[f"Rate_Pop_Area_{age_key}"] = (
+                #         self.round_or_na(
+                #             (area_pop_by_age[f"Pop_Area_{age_key}"] / total_pop)
+                #             * 100,
+                #             2,
+                #         )
+                #         if total_pop > 0
+                #         else '―'
+                #     )
+                #     # 人口密度
+                #     density_pop_by_age[f"Rate_Pop_Area_Density_{age_key}"] = (
+                #         self.round_or_na(
+                #             area_pop_by_age[f"Pop_Area_{age_key}"] / area, 1
+                #         )
+                #         if area > 0
+                #         else '―'
+                #     )
 
                 # 前年度のデータがあれば、変化率を計算
                 if data_list:
                     # 前年度のデータを取得
                     previous_year_data = data_list[-1]
-                    previous_total_pop = previous_year_data['Total_Pop']
+                    previous_total_pop = previous_year_data['pop_share_admin_pop']
                     # 前年度の居住誘導区域内人口割合を取得
-                    previous_rate_pop = previous_year_data['Rate_Pop']
+                    previous_rate_pop = previous_year_data['trend_vs_past_rpa_pop_share']
                     # 前年度の居住誘導区域内の人口密度
                     previous_pop_area_density = previous_year_data[
-                        'Pop_Area_Density'
+                        'pop_density_rpa'
                     ]
                     # 前年度の居住誘導区域外の人口密度
-                    previous_pop_outside_area_density = previous_year_data[
-                        'Pop_Outside TheArea_Density'
-                    ]
+                    # previous_pop_outside_area_density = previous_year_data[
+                    #     'Pop_Outside TheArea_Density'
+                    # ]
 
                     # 総人口の変化率を計算
                     if isinstance(total_pop, (int, float)) and isinstance(
@@ -363,21 +537,13 @@ class ResidentialInductionMetricCalculator:
                     else:
                         rate_pop_change = '―'
 
-                    # 居住誘導区域内人口割合の変化率を計算
+                    # 居住誘導区域内人口割合の変化を計算
                     if isinstance(rate_pop, (int, float)) and isinstance(
                         previous_rate_pop, (int, float)
                     ):
-                        rate_area_pop_change = (
-                            self.round_or_na(
-                                (
-                                    (rate_pop - previous_rate_pop)
-                                    / previous_rate_pop
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_rate_pop > 0
-                            else '―'
+                        rate_area_pop_change = self.round_or_na(
+                            rate_pop - previous_rate_pop,
+                            3,
                         )
                     else:
                         rate_area_pop_change = '―'
@@ -404,108 +570,104 @@ class ResidentialInductionMetricCalculator:
                     else:
                         rate_density_change = '―'
 
-                    # 居住誘導区域外人口密度の変化率
-                    if isinstance(
-                        pop_outside_area_density, (int, float)
-                    ) and isinstance(
-                        previous_pop_outside_area_density, (int, float)
-                    ):
-                        pop_outside_rate_density_change = (
-                            self.round_or_na(
-                                (
-                                    (
-                                        pop_outside_area_density
-                                        - previous_pop_outside_area_density
-                                    )
-                                    / previous_pop_outside_area_density
-                                )
-                                * 100,
-                                1,
-                            )
-                            if previous_pop_outside_area_density > 0
-                            else '―'
-                        )
-                    else:
-                        pop_outside_rate_density_change = '―'
+                    # # 居住誘導区域外人口密度の変化率
+                    # if isinstance(
+                    #     pop_outside_area_density, (int, float)
+                    # ) and isinstance(
+                    #     previous_pop_outside_area_density, (int, float)
+                    # ):
+                    #     pop_outside_rate_density_change = (
+                    #         self.round_or_na(
+                    #             (
+                    #                 (
+                    #                     pop_outside_area_density
+                    #                     - previous_pop_outside_area_density
+                    #                 )
+                    #                 / previous_pop_outside_area_density
+                    #             )
+                    #             * 100,
+                    #             1,
+                    #         )
+                    #         if previous_pop_outside_area_density > 0
+                    #         else '―'
+                    #     )
+                    # else:
+                    #     pop_outside_rate_density_change = '―'
 
-                    # 各年齢層の人口割合の変化率と人口密度の変化率
-                    rate_pop_area_change_by_age = {}
-                    rate_pop_area_density_change_by_age = {}
-                    for age_key in age_fields.keys():
-
-                        # 前年度の人口割合を取得
-                        previous_rate_pop_by_age = previous_year_data.get(
-                            f"Rate_Pop_Area_{age_key}", 0
-                        )
-                        current_rate_pop_by_age = rate_pop_by_age.get(
-                            f"Rate_Pop_Area_{age_key}", 0
-                        )
-
-                        # 人口割合の変化率を計算
-                        if isinstance(
-                            current_rate_pop_by_age, (int, float)
-                        ) and isinstance(
-                            previous_rate_pop_by_age, (int, float)
-                        ):
-                            rate_pop_area_change_by_age[
-                                f"Rate_Pop_Area_Change_{age_key}"
-                            ] = (
-                                self.round_or_na(
-                                    (
-                                        (
-                                            current_rate_pop_by_age
-                                            - previous_rate_pop_by_age
-                                        )
-                                        / previous_rate_pop_by_age
-                                    )
-                                    * 100,
-                                    1,
-                                )
-                                if previous_rate_pop_by_age > 0
-                                else '―'
-                            )
-                        else:
-                            rate_pop_area_change_by_age[
-                                f"Rate_Pop_Area_Change_{age_key}"
-                            ] = '―'
-
-                        # 前年度の人口密度を取得
-                        previous_pop_area_density_by_age = (
-                            previous_year_data.get(
-                                f"Rate_Pop_Area_Density_{age_key}", 0
-                            )
-                        )
-                        current_density_pop_by_age = density_pop_by_age.get(
-                            f"Rate_Pop_Area_Density_{age_key}", 0
-                        )
-
-                        # 人口密度の変化率を計算
-                        if isinstance(
-                            current_density_pop_by_age, (int, float)
-                        ) and isinstance(
-                            previous_pop_area_density_by_age, (int, float)
-                        ):
-                            rate_pop_area_density_change_by_age[
-                                f"Rate_Pop_Area_Change_Density_{age_key}"
-                            ] = (
-                                self.round_or_na(
-                                    (
-                                        (
-                                            current_density_pop_by_age
-                                            - previous_pop_area_density_by_age
-                                        )
-                                        / previous_pop_area_density_by_age
-                                    )
-                                    * 100,
-                                    1,
-                                )
-                                if previous_pop_area_density_by_age > 0
-                                else '―'
-                            )
-                        else:
-                            rate_pop_area_density_change_by_age[
-                                f"Rate_Pop_Area_Change_Density_{age_key}"
-                            ] = '―'
+                    # # 各年齢層の人口割合の変化率と人口密度の変化率
+                    # rate_pop_area_change_by_age = {}
+                    # rate_pop_area_density_change_by_age = {}
+                    # for age_key in age_fields.keys():
+                    #     # 前年度の人口割合を取得
+                    #     previous_rate_pop_by_age = previous_year_data.get(
+                    #         f"Rate_Pop_Area_{age_key}", 0
+                    #     )
+                    #     current_rate_pop_by_age = rate_pop_by_age.get(
+                    #         f"Rate_Pop_Area_{age_key}", 0
+                    #     )
+                    #     # 人口割合の変化率を計算
+                    #     if isinstance(
+                    #         current_rate_pop_by_age, (int, float)
+                    #     ) and isinstance(
+                    #         previous_rate_pop_by_age, (int, float)
+                    #     ):
+                    #         rate_pop_area_change_by_age[
+                    #             f"Rate_Pop_Area_Change_{age_key}"
+                    #         ] = (
+                    #             self.round_or_na(
+                    #                 (
+                    #                     (
+                    #                         current_rate_pop_by_age
+                    #                         - previous_rate_pop_by_age
+                    #                     )
+                    #                     / previous_rate_pop_by_age
+                    #                 )
+                    #                 * 100,
+                    #                 1,
+                    #             )
+                    #             if previous_rate_pop_by_age > 0
+                    #             else '―'
+                    #         )
+                    #     else:
+                    #         rate_pop_area_change_by_age[
+                    #             f"Rate_Pop_Area_Change_{age_key}"
+                    #         ] = '―'
+                    #     # 前年度の人口密度を取得
+                    #     previous_pop_area_density_by_age = (
+                    #         previous_year_data.get(
+                    #             f"Rate_Pop_Area_Density_{age_key}", 0
+                    #         )
+                    #     )
+                    #     current_density_pop_by_age = density_pop_by_age.get(
+                    #         f"Rate_Pop_Area_Density_{age_key}", 0
+                    #     )
+                    #     # 人口密度の変化率を計算
+                    #     if isinstance(
+                    #         current_density_pop_by_age, (int, float)
+                    #     ) and isinstance(
+                    #         previous_pop_area_density_by_age, (int, float)
+                    #     ):
+                    #         rate_pop_area_density_change_by_age[
+                    #             f"Rate_Pop_Area_Change_Density_{age_key}"
+                    #         ] = (
+                    #             self.round_or_na(
+                    #                 (
+                    #                     (
+                    #                         current_density_pop_by_age
+                    #                         - previous_pop_area_density_by_age
+                    #                     )
+                    #                     / previous_pop_area_density_by_age
+                    #                 )
+                    #                 * 100,
+                    #                 1,
+                    #             )
+                    #             if previous_pop_area_density_by_age > 0
+                    #             else '―'
+                    #         )
+                    #     else:
+                    #         rate_pop_area_density_change_by_age[
+                    #             f"Rate_Pop_Area_Change_Density_{age_key}"
+                    #         ] = '―'
 
                 else:
                     rate_pop_change = '―'
@@ -513,14 +675,14 @@ class ResidentialInductionMetricCalculator:
                     rate_density_change = '―'
                     pop_outside_rate_density_change = '―'
 
-                    rate_pop_area_change_by_age = {
-                        f"Rate_Pop_Area_Change_{age_key}": '―'
-                        for age_key in age_fields.keys()
-                    }
-                    rate_pop_area_density_change_by_age = {
-                        f"Rate_Pop_Area_Change_Density_{age_key}": '―'
-                        for age_key in age_fields.keys()
-                    }
+                    # rate_pop_area_change_by_age = {
+                    #     f"Rate_Pop_Area_Change_{age_key}": '―'
+                    #     for age_key in age_fields.keys()
+                    # }
+                    # rate_pop_area_density_change_by_age = {
+                    #     f"Rate_Pop_Area_Change_Density_{age_key}": '―'
+                    #     for age_key in age_fields.keys()
+                    # }
 
                 # 最後の年度だけ将来人口関連の計算を行う
                 if i == len(unique_years) - 1:
@@ -588,63 +750,27 @@ class ResidentialInductionMetricCalculator:
 
                 # データを辞書にまとめる
                 year_data = {
-                    'Year': year,
-                    'Total_Pop': total_pop,
-                    'Area_Pop': area_pop,
-                    'Outside TheArea_Pop': outside_area_pop,
-                    'Rate_Pop': rate_pop,
-                    'Outside TheArea_Rate_Pop': outside_rate_pop,
-                    'Rate_Pop_Change': rate_pop_change,
-                    'Area': area,
-                    'Outside TheArea': outside_area,
-                    'Rate_Pop_Change_Change': rate_area_pop_change,
-                    'Pop_Area_Density': pop_area_density,
-                    'Pop_Outside TheArea_Density': pop_outside_area_density,
-                    'Rate_Density_Change': rate_density_change,
-                    'Pop_Outside TheArea_Rate_Density_Change': pop_outside_rate_density_change,
-                    'Area_Pop_Difference': area_pop_difference,
-                    'Outside TheArea_future_Pop': outside_area_future_Pop,
-                    'Rate_Target_Pop_Difference': rate_target_pop_difference,
-                    'Rate_Area_Appropriateness_Sp': rate_area_appropriateness_sp,
-                    'Rate_Area_Appropriateness_Sr': rate_area_appropriateness_sr,
-                    'Pop_Area_Age0-14s': area_pop_by_age["Pop_Area_Age0-14s"],
-                    'Pop_Area_Age15-64s': area_pop_by_age["Pop_Area_Age15-64s"],
-                    'Pop_Area_Age65AndOver': area_pop_by_age[
-                        "Pop_Area_Age65AndOver"
-                    ],
-                    'Pop_Area_Age75AndOver': area_pop_by_age[
-                        "Pop_Area_Age75AndOver"
-                    ],
-                    'Pop_Area_Age85AndOver': area_pop_by_age[
-                        "Pop_Area_Age85AndOver"
-                    ],
-                    'Pop_Area_Age95AndOver': area_pop_by_age[
-                        "Pop_Area_Age95AndOver"
-                    ],
-                    'Rate_Pop_Area_Age0-14s': rate_pop_by_age[
-                        "Rate_Pop_Area_Age0-14s"
-                    ],
-                    'Rate_Pop_Area_Age15-64s': rate_pop_by_age[
-                        "Rate_Pop_Area_Age15-64s"
-                    ],
-                    'Rate_Pop_Area_Age65AndOver': rate_pop_by_age[
-                        "Rate_Pop_Area_Age65AndOver"
-                    ],
-                    'Rate_Pop_Area_Age75AndOver': rate_pop_by_age[
-                        "Rate_Pop_Area_Age75AndOver"
-                    ],
-                    'Rate_Pop_Area_Age85AndOver': rate_pop_by_age[
-                        "Rate_Pop_Area_Age85AndOver"
-                    ],
-                    'Rate_Pop_Area_Age95AndOver': rate_pop_by_age[
-                        "Rate_Pop_Area_Age95AndOver"
-                    ],
-                    # 年代別誘導区域内人口割合の変化
-                    **rate_pop_area_change_by_age,
-                    # 年代別人口密度
-                    **density_pop_by_age,
-                    # 年代別人口密度の変化率
-                    **rate_pop_area_density_change_by_age,
+                    'year': year,
+                    'pop_share_rpa_pop': area_pop,  # 居住誘導区域内人口
+                    'pop_share_rsma_pop': '',  # 居住状況把握対象区域内人口（空白）
+                    'pop_share_rpa_pop_sheet_a': '',  # A面記載の居住誘導区域内人口（空白）
+                    'pop_share_admin_pop': total_pop,  # 行政区域人口
+                    'pop_share_none': rate_pop,  # 人口割合
+                    'pop_share_rpa_delta': '',  # 人口割合増減（空白）
+                    'pop_share_rpa_national_avg': '',  # 全国平均（空白）
+                    'pop_share_rpa_national_sd': '',  # 全国標準偏差（空白）
+                    'pop_share_rpa_pref_avg': '',  # 都道府県平均（空白）
+                    'pop_share_rpa_pref_sd': '',  # 都道府県標準偏差（空白）
+                    'pop_share_rpa_pop_delta_rate': rate_area_pop_change if 'rate_area_pop_change' in locals() else '',  # 居住誘導区域内人口割合変化
+                    'trend_vs_past_rpa_pop_2010': '',  # 居住誘導区域内人口（2010）（空白）
+                    'trend_vs_past_rsma_pop_2010': '',  # 居住状況把握対象区域内人口（2010）（空白）
+                    'trend_vs_past_rpa_pop_2020_sheet_a': '',  # A面記載の居住誘導区域内人口（2020）（空白）
+                    'trend_vs_past_admin_pop_2010': '',  # 行政区域人口（2010）（空白）
+                    'trend_vs_past_rpa_pop_share': rate_pop,  # 居住誘導区域内人口割合
+                    'pop_density_rpa': pop_area_density,  # 居住誘導区域内人口密度
+                    'pop_density_rsma': '',  # 居住状況把握対象区域内人口密度（空白）
+                    'pop_density_rpa_sheet_a': '',  # A面記載の居住誘導区域内人口密度（空白）
+                    'use_hypothetical_areas': 1 if use_hypothetical_areas else 0,  # 仮想居住誘導区域使用フラグ
                 }
 
                 # 辞書をリストに追加
@@ -656,12 +782,15 @@ class ResidentialInductionMetricCalculator:
                 data_list,
             )
 
+            # IF107 将来人口と目標人口の関係性ファイルを算出出力
+            self.calc_future_target_population_relationship()
+
             return
 
         except Exception as e:
             # エラーメッセージのログ出力
             QgsMessageLog.logMessage(
-                self.tr("An error occurred: %1").replace("%1", e),
+                self.tr("An error occurred: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )
@@ -699,9 +828,424 @@ class ResidentialInductionMetricCalculator:
             # エラーメッセージのログ出力
             msg = self.tr(
                 "An error occurred during file export: %1."
-            ).replace("%1", e)
+            ).replace("%1", str(e))
             QgsMessageLog.logMessage(
                 msg,
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
+
+    def calc_future_target_population_relationship(self):
+        """将来人口と目標人口の関係性を算出"""
+        try:
+            # 建物レイヤを読み込み
+            buildings_layer = self.gpkg_manager.load_layer(
+                'buildings', None, withload_project=False
+            )
+            # 居住誘導区域レイヤを読み込み
+            induction_layer = self.gpkg_manager.load_layer(
+                'induction_areas', None, withload_project=False
+            )
+            # 目標人口設定レイヤを読み込み
+            target_settings_layer = self.gpkg_manager.load_layer(
+                'population_target_settings', None, withload_project=False
+            )
+
+            if not buildings_layer:
+                raise Exception(self.tr("The %1 layer was not found.")
+                    .replace("%1", "buildings"))
+            if not induction_layer:
+                raise Exception(self.tr("The %1 layer was not found.")
+                    .replace("%1", "induction_areas"))
+            if not target_settings_layer:
+                raise Exception(self.tr("The %1 layer was not found.")
+                    .replace("%1", "population_target_settings"))
+
+            # 建物の重心を計算
+            centroids_result = processing.run(
+                "native:centroids",
+                {
+                    'INPUT': buildings_layer,
+                    'ALL_PARTS': False,
+                    'OUTPUT': 'memory:'
+                }
+            )
+            centroid_layer = centroids_result['OUTPUT']
+
+            # 行政区域レイヤを読み込み
+            zones_layer = self.gpkg_manager.load_layer(
+                'zones', None, withload_project=False
+            )
+
+            # is_target=1のzonesを取得してフィルタリング用のレイヤを作成
+            target_zones_layer = None
+            if zones_layer:
+                target_zones_layer = QgsVectorLayer(
+                    "Polygon?crs=" + zones_layer.crs().authid(),
+                    "target_zones",
+                    "memory",
+                )
+                target_zones_data = target_zones_layer.dataProvider()
+                target_zones_data.addAttributes(zones_layer.fields())
+                target_zones_layer.updateFields()
+
+                target_zones_features = []
+                for zone_feature in zones_layer.getFeatures():
+                    if zone_feature["is_target"] == 1:
+                        target_zones_features.append(zone_feature)
+
+                if target_zones_features:
+                    target_zones_data.addFeatures(target_zones_features)
+                    target_zones_layer.updateExtents()
+                    msg = self.tr("Using %1 target zones (is_target=1) for calculation.").replace("%1", str(len(target_zones_features)))
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Info,
+                    )
+                else:
+                    # is_target=1のゾーンがない場合は集計対象なし
+                    msg = self.tr("No target zones (is_target=1) found. No calculation will be performed.")
+                    QgsMessageLog.logMessage(
+                        msg,
+                        self.tr("Plugin"),
+                        Qgis.Warning,
+                    )
+                    target_zones_layer = None
+
+            # target_zones_layerで建物重心をフィルタリング
+            if target_zones_layer and target_zones_layer.featureCount() > 0:
+                # 空間インデックス作成
+                processing.run("native:createspatialindex", {'INPUT': centroid_layer})
+                processing.run("native:createspatialindex", {'INPUT': target_zones_layer})
+
+                joined_result = processing.run(
+                    "native:joinattributesbylocation",
+                    {
+                        'INPUT': centroid_layer,
+                        'JOIN': target_zones_layer,
+                        'PREDICATE': [5],  # within
+                        'JOIN_FIELDS': [],  # フィールド結合は不要
+                        'METHOD': 0,
+                        'DISCARD_NONMATCHING': True,  # マッチしないものは除外
+                        'PREFIX': '',
+                        'OUTPUT': 'memory:'
+                    }
+                )
+                centroid_layer = joined_result['OUTPUT']
+                msg = self.tr("Filtered centroids to target zones (is_target=1).")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+            else:
+                # target_zonesがない場合は空の結果を返す
+                msg = self.tr("No target zones available. Returning empty results.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+
+            # 仮想居住誘導区域レイヤを読み込み
+            hypothetical_residential_layer = self.gpkg_manager.load_layer(
+                'hypothetical_residential_areas', None, withload_project=False
+            )
+
+            # 居住誘導区域（type_id=31）を取得、なければ仮想居住誘導区域を使用
+            has_residential_area = False
+            use_hypothetical_areas = False
+            rpa_features = []
+
+            for feature in induction_layer.getFeatures():
+                if feature["type_id"] == 31:
+                    rpa_features.append(feature)
+                    has_residential_area = True
+
+            # 居住誘導区域がある場合は新しいレイヤを作成
+            if has_residential_area:
+                rpa_layer = QgsVectorLayer(
+                    "Polygon?crs=" + induction_layer.crs().authid(),
+                    "rpa",
+                    "memory",
+                )
+                rpa_data = rpa_layer.dataProvider()
+                rpa_data.addAttributes(induction_layer.fields())
+                rpa_layer.updateFields()
+                rpa_data.addFeatures(rpa_features)
+                rpa_layer.updateExtents()
+            # 居住誘導区域がない場合は仮想居住誘導区域をそのまま使用
+            elif hypothetical_residential_layer:
+                msg = self.tr("No residential induction area (type_id=31) found. Using hypothetical residential areas.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+                rpa_layer = hypothetical_residential_layer
+                use_hypothetical_areas = True
+            else:
+                msg = self.tr("No residential induction area (type_id=31) or hypothetical residential areas found.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                # 空のレイヤを作成
+                rpa_layer = QgsVectorLayer(
+                    "Polygon?crs=" + induction_layer.crs().authid(),
+                    "rpa",
+                    "memory",
+                )
+                rpa_layer.updateExtents()
+
+            # target_zones_layerがある場合、居住誘導区域をtarget_zonesでクリップ
+            if target_zones_layer and rpa_layer.featureCount() > 0:
+                # CRSが異なる場合は再投影してからクリップ
+                if rpa_layer.crs() != target_zones_layer.crs():
+                    reprojected = processing.run(
+                        "native:reprojectlayer",
+                        {
+                            'INPUT': rpa_layer,
+                            'TARGET_CRS': target_zones_layer.crs(),
+                            'OUTPUT': 'memory:'
+                        }
+                    )['OUTPUT']
+                    rpa_layer = reprojected
+
+                clipped_rpa = processing.run(
+                    "native:clip",
+                    {
+                        'INPUT': rpa_layer,
+                        'OVERLAY': target_zones_layer,
+                        'OUTPUT': 'memory:'
+                    }
+                )['OUTPUT']
+
+                # クリップされたレイヤを使用
+                rpa_layer = clipped_rpa
+
+                msg = self.tr("Residential induction areas clipped to target zones.")
+                QgsMessageLog.logMessage(
+                    msg,
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+
+            # 空間インデックス作成
+            processing.run("native:createspatialindex", {'INPUT': centroid_layer})
+            processing.run("native:createspatialindex", {'INPUT': rpa_layer})
+
+            # 年度情報を取得
+            fields = buildings_layer.fields()
+            years = set()
+            pattern = re.compile(r'^(\d{4})_')
+            for field in fields:
+                match = pattern.match(field.name())
+                if match:
+                    years.add(match.group(1))
+            unique_years = sorted(list(years))
+            latest_year = unique_years[-1] if unique_years else None
+
+            # population_target_settingsから比較年度を取得
+            comparative_year = None
+            for feature in target_settings_layer.getFeatures():
+                comp_year = feature['comparative_year'] if 'comparative_year' in feature.fields().names() else None
+                if comp_year is not None:
+                    comparative_year = str(comp_year)
+                    break
+
+            # 将来人口フィールドを構築 (future_YYYY_PT0)
+            future_field = None
+            if comparative_year:
+                future_field = f'future_{comparative_year}_PT00'
+
+            # 行政区域内の建物重心（最新年人口）を集計
+            admin_pop = 0
+            if latest_year:
+                pop_field = f'{latest_year}_population'
+                if pop_field in centroid_layer.fields().names():
+                    admin_pop_result = centroid_layer.aggregate(
+                        QgsAggregateCalculator.Aggregate.Sum,
+                        pop_field,
+                        QgsAggregateCalculator.AggregateParameters(),
+                    )
+                    admin_pop = int(admin_pop_result[0]) if admin_pop_result[0] is not None else 0
+
+            # 行政区域内の建物重心（将来人口）を集計
+            municipality_projected_pop = 0
+            if future_field and future_field in centroid_layer.fields().names():
+                municipality_projected_pop_result = centroid_layer.aggregate(
+                    QgsAggregateCalculator.Aggregate.Sum,
+                    future_field,
+                    QgsAggregateCalculator.AggregateParameters(),
+                )
+                municipality_projected_pop = int(municipality_projected_pop_result[0]) if municipality_projected_pop_result[0] is not None else 0
+
+            # 居住誘導区域内の建物を取得
+            rpa_buildings_result = processing.run(
+                "native:joinattributesbylocation",
+                {
+                    'INPUT': centroid_layer,
+                    'JOIN': rpa_layer,
+                    'PREDICATE': [5],  # overlap
+                    'JOIN_FIELDS': [],
+                    'METHOD': 0,
+                    'OUTPUT': 'TEMPORARY_OUTPUT',
+                    'DISCARD_NONMATCHING': True,
+                    'PREFIX': 'rpa_',
+                },
+            )
+            rpa_buildings = rpa_buildings_result['OUTPUT']
+
+            # 居住誘導区域内人口（最新年）を集計
+            rpa_pop_sheet_a = 0
+            if latest_year:
+                pop_field = f'{latest_year}_population'
+                if pop_field in rpa_buildings.fields().names():
+                    rpa_pop_result = rpa_buildings.aggregate(
+                        QgsAggregateCalculator.Aggregate.Sum,
+                        pop_field,
+                        QgsAggregateCalculator.AggregateParameters(),
+                    )
+                    rpa_pop_sheet_a = int(rpa_pop_result[0]) if rpa_pop_result[0] is not None else 0
+
+            # 居住誘導区域内将来人口を集計
+            rpa_projected_pop = 0
+            if future_field and future_field in rpa_buildings.fields().names():
+                rpa_projected_pop_result = rpa_buildings.aggregate(
+                    QgsAggregateCalculator.Aggregate.Sum,
+                    future_field,
+                    QgsAggregateCalculator.AggregateParameters(),
+                )
+                rpa_projected_pop = int(rpa_projected_pop_result[0]) if rpa_projected_pop_result[0] is not None else 0
+
+            # 居住誘導区域外人口を算出
+            outside_rpa_pop_sheet_a = admin_pop - rpa_pop_sheet_a
+
+            # 居住誘導区域外将来人口を算出
+            outside_rpa_projected_pop = municipality_projected_pop - rpa_projected_pop
+
+            # 目標人口を取得
+            rpa_pop_target = 0
+            for feature in target_settings_layer.getFeatures():
+                target_pop = feature['target_population'] if 'target_population' in feature.fields().names() else 0
+                if target_pop is not None:
+                    rpa_pop_target = round(target_pop) if isinstance(target_pop, (int, float)) else 0
+                    break
+
+            # 居住誘導区域外の目標人口を算出
+            outside_rpa_pop_target = round(municipality_projected_pop - rpa_pop_target)
+
+            # データを作成
+            data_list = [{
+                # 行政区域人口
+                'admin_pop': admin_pop,
+                # 都市計画区域人口
+                'city_planning_area_pop': '',
+                # 市街化区域人口
+                'urbanization_promotion_area_pop': '',
+                # 用途地域人口
+                'zoning_pop': '',
+                # 用途地域人口（工業・工専のみ）
+                'zoning_pop_industrial_only': '',
+                # 用途地域（工業・工専除く）人口
+                'zoning_pop_excl_industrial': '',
+                # 居住誘導区域人口（GIS算出）
+                'rpa_pop_gis_estimate': '',
+                # 居住誘導区域人口（R2・意向調査より）
+                'rpa_pop_from_intention_survey_r2': '',
+                # 居住誘導区域人口（A面記載）
+                'rpa_pop_sheet_a': rpa_pop_sheet_a,
+                # 居住誘導区域外人口
+                'outside_rpa_pop_sheet_a': outside_rpa_pop_sheet_a,
+                # 都市機能誘導区域人口
+                'ufia_pop': '',
+                # 居住状況把握対象区域人口
+                'rsma_pop': '',
+                # 行政区域面積
+                'admin_area': '',
+                # 都市計画区域面積
+                'city_planning_area': '',
+                # 市街化区域面積
+                'urbanization_promotion_area': '',
+                # 用途地域面積
+                'zoning_area': '',
+                # 用途地域（工業・工専除く）面積
+                'zoning_area_excl_industrial': '',
+                # 居住誘導区域面積
+                'rpa_area': '',
+                # 居住誘導区域面積（意向調査より）
+                'rpa_area_from_intention_survey': '',
+                # 居住誘導区域面積（A面記載）
+                'rpa_area_sheet_a': '',
+                # 都市機能誘導区域面積
+                'ufia_area': '',
+                # 都市機能誘導区域面積（意向調査より）
+                'ufia_area_from_intention_survey': '',
+                # 都市機能誘導区域面積（A面記載）
+                'ufia_area_sheet_a': '',
+                # 居住状況把握対象区域面積
+                'rsma_area': '',
+                # 自治体将来人口
+                'municipality_projected_pop': municipality_projected_pop,
+                # 目標年次
+                'target_year': '',
+                # 居住誘導区域の人口目標値
+                'rpa_pop_target': rpa_pop_target,
+                # 居住誘導区域外の目標人口
+                'outside_rpa_pop_target': outside_rpa_pop_target,
+                # 居住誘導区域人口（2020）
+                'rpa_pop_2020': '',
+                # 居住誘導区域内の将来人口
+                'rpa_projected_pop': rpa_projected_pop,
+                # 居住誘導区域外の将来人口
+                'outside_rpa_projected_pop': outside_rpa_projected_pop,
+                # 必要誘導人口
+                'required_induced_pop': '',
+                # 居住誘導区域内の人口減少に対する、必要誘導人口の割合
+                'required_induced_pop_share_of_rpa_pop_decline': '',
+                # 居住誘導区域外の将来人口に対する、必要誘導人口の割合
+                'required_induced_pop_share_of_outside_rpa_projected_pop': '',
+                # 当該市町村内で目標達成しようとした場合の市町村タイプ
+                'municipality_type_for_target_achievement_within_municipality': '',
+                # 転入超過数（国内＋国外）5年平均
+                'net_in_migration_total_five_year_avg': '',
+                # 転入超過数（国内＋国外）（2020）
+                'net_in_migration_total_2020': '',
+                # 転入超過数（国内＋国外）（2021）
+                'net_in_migration_total_2021': '',
+                # 転入超過数（国内＋国外）（2022）
+                'net_in_migration_total_2022': '',
+                # 転入超過数（国内＋国外）（2023）
+                'net_in_migration_total_2023': '',
+                # 転入超過数（国内＋国外）（2024）
+                'net_in_migration_total_2024': '',
+                # 転入超過数（国内）5年平均
+                'net_in_migration_domestic_five_year_avg': '',
+                # 転入超過数（国内）（2020）
+                'net_in_migration_domestic_2020': '',
+                # 転入超過数（国内）（2021）
+                'net_in_migration_domestic_2021': '',
+                # 転入超過数（国内）（2022）
+                'net_in_migration_domestic_2022': '',
+                # 転入超過数（国内）（2023）
+                'net_in_migration_domestic_2023': '',
+                # 転入超過数（国内）（2024）
+                'net_in_migration_domestic_2024': '',
+            }]
+
+            # ファイルパスを指定してエクスポート
+            self.export(
+                self.base_path + '\\IF107_将来人口と目標人口の関係性ファイル.csv',
+                data_list,
+            )
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred in calc_future_target_population_relationship: %1").replace("%1", str(e)),
                 self.tr("Plugin"),
                 Qgis.Critical,
             )

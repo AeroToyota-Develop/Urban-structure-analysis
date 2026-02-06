@@ -6,7 +6,7 @@
  ***************************************************************************/
 """
 from qgis.core import QgsProject, QgsRasterLayer
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QCoreApplication
 from ..utils import (
     GpkgManager,
     ZoneDataGenerator,
@@ -25,6 +25,7 @@ from ..utils import (
     LandUseMetricCalculator,
     DisasterPreventionMetricCalculator,
 )
+from ..utils.data_loader import BuildingLayerNotFoundError
 
 
 class MetricCalculationWorker(QThread):
@@ -35,6 +36,7 @@ class MetricCalculationWorker(QThread):
     progress = pyqtSignal(int)
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
+    set_project_crs = pyqtSignal(str)  # メインスレッドでCRS設定を要求
 
     def __init__(
         self,
@@ -43,6 +45,7 @@ class MetricCalculationWorker(QThread):
         threshold_bus,
         threshold_railway,
         threshold_shelter,
+        dialog_requester=None,
     ):
         super().__init__()
         self.input_folder = input_folder
@@ -51,6 +54,11 @@ class MetricCalculationWorker(QThread):
         self.threshold_railway = threshold_railway
         self.threshold_shelter = threshold_shelter
         self.is_canceled = False
+        self.dialog_requester = dialog_requester
+
+    def tr(self, message):
+        """翻訳用のメソッド"""
+        return QCoreApplication.translate(self.__class__.__name__, message)
 
     def run(self):
         """
@@ -99,11 +107,27 @@ class MetricCalculationWorker(QThread):
 
                     # レイヤをプロジェクトに追加
                     QgsProject.instance().addMapLayer(osm_layer)
+                    
+                    # QGISのイベントループを処理してOSMレイヤー追加を完了させる
+                    from PyQt5.QtWidgets import QApplication
+                    QApplication.processEvents()
+                    
+                    # 少し待機してレイヤー追加処理の完了を待つ
+                    import time
+                    time.sleep(0.2)
+                    
+                    # 再度イベント処理
+                    QApplication.processEvents()
+                    
                     print(self.tr("Added %1 to the layer panel").replace("%1", layer_name))
                 else:
                     print(self.tr("Failed to add %1").replace("%1", layer_name))
 
             # データ作成
+
+            # プロジェクトのCRSをEPSG:6668に設定
+            self.set_project_crs.emit('EPSG:6668')
+            
             # GeoPackageの初期化
             self.progress.emit(0)
             gpkg_manager = GpkgManager(self.output_folder)
@@ -114,7 +138,7 @@ class MetricCalculationWorker(QThread):
             # ゾーンポリゴン作成
             if not self.check_canceled():
                 zone_data_generator = ZoneDataGenerator(
-                    self.input_folder, self.check_canceled
+                    self.input_folder, self.check_canceled, self.cancel, self.dialog_requester
                 )
                 zone_data_generator.create_zone()
                 self.progress.emit(10)
@@ -127,112 +151,116 @@ class MetricCalculationWorker(QThread):
                 vacancy_data_generator.create_vacancy()
                 self.progress.emit(15)
 
-            # データ読み込み機能
-            if not self.check_canceled():
-                data_loader = DataLoader(self.check_canceled)
-                data_loader.load_buildings()
-                self.progress.emit(20)
+            # # データ読み込み機能
+            # if not self.check_canceled():
+            #     try:
+            #         data_loader = DataLoader(self.check_canceled)
+            #         data_loader.load_buildings()
+            #         self.progress.emit(20)
+            #     except BuildingLayerNotFoundError as e:
+            #         self.error.emit(str(e))
+            #         return
 
-            # 人口データ作成機能
-            if not self.check_canceled():
-                population_data_generator = PopulationDataGenerator(
-                    self.input_folder, self.check_canceled
-                )
-                population_data_generator.load_population_meshes()
-                self.progress.emit(25)
+            # # 人口データ作成機能
+            # if not self.check_canceled():
+            #     population_data_generator = PopulationDataGenerator(
+            #         self.input_folder, self.check_canceled
+            #     )
+            #     population_data_generator.load_population_meshes()
+            #     self.progress.emit(25)
 
-            # 施設関連データ作成機能
-            if not self.check_canceled():
-                facility_data_generator = FacilityDataGenerator(
-                    self.input_folder, self.check_canceled
-                )
-                facility_data_generator.load_facilities()
-                self.progress.emit(30)
+            # # 施設関連データ作成機能
+            # if not self.check_canceled():
+            #     facility_data_generator = FacilityDataGenerator(
+            #         self.input_folder, self.check_canceled
+            #     )
+            #     facility_data_generator.load_facilities()
+            #     self.progress.emit(30)
 
-            # 交通関連データ作成機能
-            if not self.check_canceled():
-                transportation_data_generator = TransportationDataGenerator(
-                    self.input_folder, self.check_canceled
-                )
-                transportation_data_generator.load_transportations()
-                self.progress.emit(35)
+            # # 交通関連データ作成機能
+            # if not self.check_canceled():
+            #     transportation_data_generator = TransportationDataGenerator(
+            #         self.input_folder, self.check_canceled
+            #     )
+            #     transportation_data_generator.load_transportations()
+            #     self.progress.emit(35)
 
-            # 建築物LOD1へのデータ付与機能
-            if not self.check_canceled():
-                building_data_assigner = BuildingDataAssigner(
-                    self.input_folder, self.check_canceled
-                )
-                building_data_assigner.exec()
-                self.progress.emit(40)
+            # # 建築物LOD1へのデータ付与機能
+            # if not self.check_canceled():
+            #     building_data_assigner = BuildingDataAssigner(
+            #         self.input_folder, self.check_canceled
+            #     )
+            #     building_data_assigner.exec()
+            #     self.progress.emit(40)
 
-            # 圏域作成機能
-            if not self.check_canceled():
-                area_data_generator = AreaDataGenerator(
-                    self.input_folder,
-                    self.threshold_bus,
-                    self.threshold_railway,
-                    self.threshold_shelter,
-                    self.check_canceled,
-                )
-                area_data_generator.create_area_data()
-                self.progress.emit(45)
+            # # 圏域作成機能
+            # if not self.check_canceled():
+            #     area_data_generator = AreaDataGenerator(
+            #         self.input_folder,
+            #         self.threshold_bus,
+            #         self.threshold_railway,
+            #         self.threshold_shelter,
+            #         self.check_canceled,
+            #     )
+            #     area_data_generator.create_area_data()
+            #     self.progress.emit(45)
 
-            # 財政関連データ作成機能
-            if not self.check_canceled():
-                financial_data_generator = FinancialDataGenerator(
-                    self.input_folder, self.check_canceled
-                )
-                financial_data_generator.create_land_price()
-                self.progress.emit(50)
+            # # 財政関連データ作成機能
+            # if not self.check_canceled():
+            #     financial_data_generator = FinancialDataGenerator(
+            #         self.input_folder, self.check_canceled
+            #     )
+            #     financial_data_generator.create_land_price()
+            #     self.progress.emit(50)
 
-            # 評価指標算出
-            # 居住誘導関連評価指標算出機能
-            if not self.check_canceled():
-                calclator = ResidentialInductionMetricCalculator(
-                    self.output_folder, self.check_canceled
-                )
-                calclator.calc()
-                self.progress.emit(55)
+            # # 評価指標算出
+            # # 居住誘導関連評価指標算出機能
+            # if not self.check_canceled():
+            #     calclator = ResidentialInductionMetricCalculator(
+            #         self.output_folder, self.check_canceled
+            #     )
+            #     calclator.calc()
+            #     self.progress.emit(55)
 
-            # 都市機能誘導関連評価指標算出機能
-            if not self.check_canceled():
-                calclator = UrbanFunctionInductionMetricCalculator(
-                    self.output_folder, self.check_canceled
-                )
-                calclator.calc()
-                self.progress.emit(65)
+            # # 都市機能誘導関連評価指標算出機能
+            # if not self.check_canceled():
+            #     calclator = UrbanFunctionInductionMetricCalculator(
+            #         self.output_folder, self.check_canceled
+            #     )
+            #     calclator.calc()
+            #     self.progress.emit(65)
 
-            # 防災関連評価指標算出機能
-            if not self.check_canceled():
-                calclator = DisasterPreventionMetricCalculator(
-                    self.output_folder, self.check_canceled
-                )
-                calclator.calc()
-                self.progress.emit(75)
+            # # 防災関連評価指標算出機能
+            # if not self.check_canceled():
+            #     calclator = DisasterPreventionMetricCalculator(
+            #         self.output_folder, self.check_canceled
+            #     )
+            #     calclator.calc()
+            #     self.progress.emit(75)
 
-            # 公共交通関連評価指標算出機能
-            if not self.check_canceled():
-                calclator = PublicTransportMetricCalculator(
-                    self.output_folder, self.check_canceled
-                )
-                calclator.calc()
-                self.progress.emit(85)
+            # # 公共交通関連評価指標算出機能
+            # if not self.check_canceled():
+            #     calclator = PublicTransportMetricCalculator(
+            #         self.output_folder, self.check_canceled
+            #     )
+            #     calclator.calc()
+            #     self.progress.emit(85)
 
-            # 土地利用関連評価指標算出機能
-            if not self.check_canceled():
-                calclator = LandUseMetricCalculator(
-                    self.output_folder, self.check_canceled
-                )
-                calclator.calc()
-                self.progress.emit(95)
+            # # 土地利用関連評価指標算出機能
+            # if not self.check_canceled():
+            #     calclator = LandUseMetricCalculator(
+            #         self.output_folder, self.check_canceled
+            #     )
+            #     calclator.calc()
+            #     self.progress.emit(95)
 
-            # 財政関連評価指標算出機能
-            if not self.check_canceled():
-                calclator = FiscalMetricCalculator(
-                    self.output_folder, self.check_canceled
-                )
-                calclator.calc()
-                self.progress.emit(100)
+            # # 財政関連評価指標算出機能
+            # if not self.check_canceled():
+            #     calclator = FiscalMetricCalculator(
+            #         self.output_folder, self.check_canceled
+            #     )
+            #     calclator.calc()
+            #     self.progress.emit(100)
 
             if not self.is_canceled:
                 self.finished.emit(self.tr("Processing completed"))
@@ -240,8 +268,14 @@ class MetricCalculationWorker(QThread):
                 self.finished.emit(self.tr("Processing was canceled"))
 
         except Exception as e:
-            msg = self.tr("An error occurred: %1").replace("%1", e)
-            self.error.emit(msg)
+            error_str = str(e) if e else "Unknown error"
+            print(f"DEBUG: Exception type: {type(e)}, Exception: {e}")
+            try:
+                msg = f"An error occurred: {error_str}"
+                self.error.emit(msg)
+            except Exception as replace_error:
+                print(f"DEBUG: Replace error: {type(replace_error)}, {replace_error}")
+                self.error.emit(f"An error occurred: {error_str}")
 
 
     def check_canceled(self):
