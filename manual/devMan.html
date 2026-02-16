@@ -80,8 +80,7 @@
 <h1 id="環境構築手順書">環境構築手順書</h1>
 
 <h1 id="1-本書について">1 本書について</h1>
-<p>本書では、都市構造評価ツール（以下「本ツール」という。）の利用環境構築手順について記載しています。本ツールの構成や仕様の詳細については以下も参考にしてください。</p>
-<p><a href="%E3%81%93%E3%81%93%E3%81%AB%E6%8A%80%E8%A1%93%E6%A4%9C%E8%A8%BC%E3%83%AC%E3%83%9D%E3%83%BC%E3%83%88%E3%81%AE%E3%83%AA%E3%83%B3%E3%82%AF%E3%82%92%E8%A8%98%E8%BC%89">技術検証レポート（※更新予定）</a></p>
+<p>本書では、都市構造評価ツールの利用環境構築手順について記載しています。本ツールの構成や仕様の詳細については以下も参考にしてください。</p>
 <h1 id="2-動作環境">2 動作環境</h1>
 <p>本システムの動作環境は以下のとおりです。</p>
 <table>
@@ -95,17 +94,27 @@
 <tbody>
 <tr>
 <td>OS</td>
-<td>Microsoft Windows 10 または 11</td>
+<td>Windows 10 Pro 64ビット以上</td>
 <td>同左</td>
 </tr>
 <tr>
 <td>CPU</td>
-<td>Intel Core i3以上</td>
+<td>Intel Core i5以上</td>
+<td>同左</td>
+</tr>
+<tr>
+<td>GPU</td>
+<td>インテル® UHD グラフィックス（CPU に内蔵）</td>
 <td>同左</td>
 </tr>
 <tr>
 <td>メモリ</td>
-<td>8GB以上</td>
+<td>16GB以上</td>
+<td>同左</td>
+</tr>
+<tr>
+<td>ストレージ</td>
+<td>256GB SSD ※1</td>
 <td>同左</td>
 </tr>
 <tr>
@@ -115,26 +124,27 @@
 </tr>
 <tr>
 <td>ネットワーク</td>
-<td>【3D都市モデルデータ読み込み】 各種プラグインをインストールできる環境が必要<br>【可視化】 オープンストリートマップを表示できる環境が必要 <a href="https://www.openstreetmap.org/#map">https://www.openstreetmap.org/#map</a></td>
+<td>インターネット接続が必要</td>
 <td>同左</td>
 </tr>
 </tbody>
 </table>
+<p>※1 入手するインプットデータ等により必要な容量は異なります。データの保存に十分な容量をご用意ください。</p>
 <h1 id="3-インストール手順">3 インストール手順</h1>
 <h2 id="3-1-qgisのインストール">3-1. QGISのインストール</h2>
 <p><a href="https://qgis.org/download/">こちら</a>
-からQGISをダウンロード、インストールします。</p>
+からQGIS（バージョン 3.34）をダウンロード、インストールします。</p>
 <h2 id="3-2-本ツールプラグインインストール">3-2. 本ツールプラグインインストール</h2>
-<h4 id="3-2-1-プラグインのダウンロード">3-2-1. プラグインのダウンロード</h4>
+<h3 id="3-2-1-プラグインのダウンロード">3-2-1. プラグインのダウンロード</h3>
 <p><a href="https://github.com/Project-PLATEAU/Urban-structure-analysis/releases">こちら</a>
 から本ツールのプラグインをダウンロードします。</p>
-<h4 id="3-2-2-qgisを起動します">3-2-2. QGISを起動します。</h4>
+<h3 id="3-2-2-qgisを起動します">3-2-2. QGISを起動します。</h3>
 <p><img src="../resources/devMan/tutorial_001.png" alt=""></p>
-<h4 id="3-2-3-メニューのプラグインプラグインの管理とインストールを開きます">3-2-3. メニューのプラグイン&gt;プラグインの管理とインストールを開きます。</h4>
+<h3 id="3-2-3-メニューのプラグインプラグインの管理とインストールを開きます">3-2-3. メニューのプラグイン&gt;プラグインの管理とインストールを開きます。</h3>
 <p><img src="../resources/devMan/tutorial_002.png" alt=""></p>
-<h4 id="3-2-4-zipからインストール画面を開きます">3-2-4. 「ZIPからインストール」画面を開きます。</h4>
+<h3 id="3-2-4-zipからインストール画面を開きます">3-2-4. 「ZIPからインストール」画面を開きます。</h3>
 <p><img src="../resources/devMan/tutorial_003.png" alt=""></p>
-<h4 id="3-2-5-本プラグインのzipファイルを選択しインストールを実行します">3-2-5. 本プラグインのZIPファイルを選択し、「インストール」を実行します。</h4>
+<h3 id="3-2-5-本プラグインのzipファイルを選択しインストールを実行します">3-2-5. 本プラグインのZIPファイルを選択し、「インストール」を実行します。</h3>
 <p><img src="../resources/devMan/tutorial_004.png" alt=""></p>
 <p>自身でソースファイルをダウンロードし、QGISのプラグインフォルダに展開することでもインストール可能です。<br>
 ソースファイルは
@@ -158,11 +168,16 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <h3 id="3-3-2-3d都市モデルデータの入手">3-3-2. 3D都市モデルデータの入手</h3>
 <p>3D都市モデル（CityGML）のデータを、下記URLからダウンロードします。</p>
 <p><a href="https://www.mlit.go.jp/plateau/open-data/">https://www.mlit.go.jp/plateau/open-data/</a></p>
-<p>G空間情報センターより「CityGML（v3）」または「CityGML（v4）」以降を選択しましょう。人口の多い地域は比較的データが多く、ダウンロードに時間がかかることがあります。また、ダウンロードしたファイルはzip圧縮された状態でも5GBを超えることがあり、解凍するとさらに大きくなります。ストレージの空き容量に注意してください。</p>
+<ul>
+<li>G空間情報センターより「CityGML（v3）」または「CityGML（v4）」以降を選択しましょう。</li>
+<li>人口の多い地域は比較的データが多く、ダウンロードに時間がかかることがあります。</li>
+<li>ダウンロードしたファイルはzip圧縮された状態でも5GBを超えることがあり、解凍するとさらに大きくなります。</li>
+<li>ストレージの空き容量に注意してください。</li>
+</ul>
 <p>ダウンロードしたファイルは、解凍してください。</p>
 <p><img src="../resources/devMan/tutorial_007.png" alt=""></p>
 <h3 id="3-3-3-変換ソフトの入手とセットアップ">3-3-3. 変換ソフトの入手とセットアップ</h3>
-<p>「PLATEAU GIS Converter」は下記サイトよりインストーラーをダウンロードして起動し、セットアップを行います。</p>
+<p>「PLATEAU GIS Converter」は、CityGML形式のデータをGeoPackage形式に変換するためのソフトウェアです。下記サイトよりインストーラーをダウンロードして起動し、セットアップを行います。</p>
 <p><a href="https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases">https://github.com/Project-PLATEAU/PLATEAU-GIS-Converter/releases</a></p>
 <ul>
 <li>Windows版: <code>PLATEAU.GIS.Converter_X.X.X_x64-setup.exe</code></li>
@@ -171,17 +186,21 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <p><img src="../resources/devMan/tutorial_008.png" alt=""></p>
 <h3 id="3-3-4-データ形式の変換">3-3-4. データ形式の変換</h3>
 <p>「PLATEAU GIS Converter」を起動し、各種設定を行います。</p>
-<h4 id="入力設定">入力設定</h4>
+<h4 id="3-3-4-1-入力設定">3-3-4-1. 入力設定</h4>
 <p>変換元のCityGML形式ファイルを格納したフォルダ、または単一のCityGML形式ファイルを選択します。</p>
 <ol>
 <li>「フォルダ選択」ボタンが緑色になった状態で下にある「選択」ボタンをクリックします
 <img src="../resources/devMan/tutorial_009.png" alt=""></li>
 <li>「フォルダの選択」ダイアログが表示されるので、ダウンロードを行った3D都市モデル（CityGML）の解凍を行ったデータの下記フォルダを選択し、「フォルダの選択」を押下します</li>
+<li>「bldg」フォルダを選択してください。</li>
 </ol>
 <p>例）<code>C:\都市構造UC09\09201_utsunomiyashi_city_2023_citygml_2_op\udx\bldg</code></p>
-<p>※「bldg」フォルダを選択してください</p>
+<div class="NOTE">
+<h5>Note</h5>
+<p>ドライブレター（<code>C:\</code>）やフォルダ名（<code>09201_utsunomiyashi_city_2023_citygml_2_op</code>）は、データの格納場所や対象都市によって異なります。</p>
+</div>
 <p><img src="../resources/devMan/tutorial_010.png" alt=""></p>
-<h4 id="設定">設定</h4>
+<h4 id="3-3-4-2-設定">3-3-4-2. 設定</h4>
 <p>以下の設定を行います。</p>
 <table>
 <thead>
@@ -205,9 +224,9 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 </tr>
 </tbody>
 </table>
-<h4 id="出力設定">出力設定</h4>
+<h4 id="3-3-4-3-出力設定">3-3-4-3. 出力設定</h4>
 <p>出力先のフォルダ名またはファイル名を選択します。3-3-1で作成した <code>input</code> フォルダ内の <code>01_都市モデル（建物）</code> フォルダを出力先に指定します。</p>
-<h4 id="変換実行">変換実行</h4>
+<h4 id="3-3-4-4-変換実行">3-3-4-4. 変換実行</h4>
 <p>設定が完了したら「変換」ボタンを押下すると、指定フォルダに「GeoPackage形式」へ変換された3D都市モデル（CityGML）データが作成されます。</p>
 <p><img src="../resources/devMan/tutorial_011.png" alt=""></p>
 <h1 id="4-準備物一覧">4 準備物一覧</h1>
@@ -218,6 +237,7 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <th>No.</th>
 <th>格納フォルダ名</th>
+<th>必須/任意</th>
 <th>入手先</th>
 <th>格納データ</th>
 </tr>
@@ -226,167 +246,200 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>1</td>
 <td>01_都市モデル（建物）</td>
+<td>必須</td>
 <td>G空間情報センター</td>
 <td>Plateau GISコンバーターでbldgデータを「Geopackage形式」へ変換を行ったデータ</td>
 </tr>
 <tr>
 <td>2</td>
 <td>02_ゾーンポリゴン</td>
+<td>必須</td>
 <td>国土数値情報</td>
 <td>「行政区域」</td>
 </tr>
 <tr>
 <td>3</td>
 <td>03_鉄道駅位置</td>
+<td>必須</td>
 <td>国土数値情報</td>
 <td>「鉄道」</td>
 </tr>
 <tr>
 <td>4</td>
 <td>04_鉄道ネットワーク</td>
+<td>必須</td>
 <td>国土数値情報</td>
 <td>「鉄道」</td>
 </tr>
 <tr>
 <td>5</td>
 <td>05_バス停</td>
+<td>必須</td>
 <td>国土数値情報</td>
 <td>「バス停留所」</td>
 </tr>
 <tr>
 <td>6</td>
 <td>06_バスルート</td>
+<td>必須</td>
 <td>国土数値情報</td>
 <td>「バスルート」</td>
 </tr>
 <tr>
 <td>7</td>
 <td>07_道路ネットワーク</td>
+<td>必須</td>
 <td>OpenStreetMap</td>
 <td>gis_osm_roads_free_1.shp</td>
 </tr>
 <tr>
 <td>8</td>
 <td>08_施設</td>
+<td>任意</td>
 <td>国土数値情報、各自治体保有データ</td>
 <td>「市区町村役場」,「市町村役場等及び公的集会施設」,「文化施設」,「福祉施設」,「医療機関」,「学校」</td>
 </tr>
 <tr>
 <td>9</td>
 <td>09_避難所</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「避難施設」</td>
 </tr>
 <tr>
 <td>10</td>
 <td>10_250mメッシュ</td>
+<td>必須</td>
 <td>e-stat</td>
 <td>「境界データ&gt;5次メッシュ（250mメッシュ）&gt;世界測地系緯度経度・Shapefile」</td>
 </tr>
 <tr>
 <td>11</td>
 <td>11_250mメッシュ人口</td>
+<td>必須</td>
 <td>e-stat</td>
 <td>「統計データ&gt;国勢調査&gt;2010年/2015年/2020年&gt;5次メッシュ（250mメッシュ）」</td>
 </tr>
 <tr>
 <td>12</td>
 <td>12_500mメッシュ別将来人口</td>
+<td>必須</td>
 <td>国土数値情報</td>
 <td>「500mメッシュ別将来推計人口」</td>
 </tr>
 <tr>
 <td>13</td>
 <td>13_変化度マップ（建物変化）</td>
+<td>任意</td>
 <td>国より提供</td>
 <td>自治体に関連する1次メッシュ単位で格納</td>
 </tr>
 <tr>
 <td>14</td>
 <td>14_土地利用細分化メッシュ</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「土地利用細分化メッシュ」</td>
 </tr>
 <tr>
 <td>15</td>
 <td>15_ハザードエリア計画規模</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「洪水浸水想定区域（1次メッシュ単位）&gt;10_計画規模」</td>
 </tr>
 <tr>
 <td>16</td>
 <td>16_ハザードエリア想定最大規模</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「洪水浸水想定区域（1次メッシュ単位）&gt;20_想定最大規模」</td>
 </tr>
 <tr>
 <td>17</td>
 <td>17_ハザードエリア高潮浸水想定区域</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「高潮浸水想定区域」</td>
 </tr>
 <tr>
 <td>18</td>
 <td>18_ハザードエリア津波浸水想定区域</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「津波浸水想定」</td>
 </tr>
 <tr>
 <td>19</td>
 <td>19_ハザードエリア土砂災害</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「土砂災害警戒区域」</td>
 </tr>
 <tr>
 <td>20</td>
 <td>20_ハザードエリア氾濫流</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「洪水浸水想定区域（1次メッシュ単位）&gt;41_家屋倒壊等氾濫想定区域_氾濫流」</td>
 </tr>
 <tr>
 <td>21</td>
 <td>21_誘導区域</td>
+<td>必須 ※1</td>
 <td>国土交通省_都市計画決定GISオープンデータ</td>
 <td>「都市計画情報」</td>
 </tr>
 <tr>
 <td>22</td>
 <td>22_仮想居住誘導区域</td>
+<td>任意</td>
 <td>自治体保有データ</td>
 <td>居住誘導区域データがない（策定していない）場合ユーザーにて作成</td>
 </tr>
 <tr>
 <td>23</td>
 <td>23_地価公示</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「地価公示」</td>
 </tr>
 <tr>
 <td>24</td>
 <td>24_空き家ポイント</td>
+<td>任意</td>
 <td>―</td>
 <td>―</td>
 </tr>
 <tr>
 <td>25</td>
 <td>25_固定資産の価格等の概要調書</td>
+<td>任意</td>
 <td>総務省</td>
 <td>「平成22年度・平成27年度・令和2年度 固定資産の価格等の概要調書」</td>
 </tr>
 <tr>
 <td>26</td>
 <td>26_市町村別決算状況調</td>
+<td>任意</td>
 <td>総務省</td>
 <td>「平成24年度～令和4年度 市町村別決算状況調」</td>
 </tr>
 <tr>
 <td>27</td>
 <td>27_人口集中地区</td>
+<td>任意</td>
 <td>国土数値情報</td>
 <td>「人口集中地区データ」</td>
 </tr>
 </tbody>
 </table>
+<p>※1 22_仮想居住誘導区域のデータがある場合は任意となります。</p>
+<div class="NOTE">
+<h5>Note</h5>
+<p>記載と異なる作成年度のデータを使用した場合、データのフォーマット（属性等）が同一であれば動作しますが、異なる場合は算出結果の精度に影響する可能性があります。
+各データのフォーマットについては各ダウンロードサイトを参照ください。</p>
+</div>
 <h1 id="5-inputフォルダ格納データ詳細">5 inputフォルダ格納データ詳細</h1>
 <h2 id="5-1-01_都市モデル建物">5-1. 01_都市モデル（建物）</h2>
 <table>
@@ -400,6 +453,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>01_都市モデル（建物）</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>必須</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -437,6 +494,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>02_ゾーンポリゴン</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>必須</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「行政区域」</td>
 </tr>
@@ -470,6 +531,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>03_鉄道駅位置</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>必須</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -507,6 +572,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>04_鉄道ネットワーク</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>必須</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「鉄道」</td>
 </tr>
@@ -540,6 +609,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>05_バス停</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>必須</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -577,6 +650,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>06_バスルート</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>必須</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「バスルート」</td>
 </tr>
@@ -612,6 +689,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>07_道路ネットワーク</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>必須</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>OpenStreetMap</td>
 </tr>
@@ -634,7 +715,7 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 </tbody>
 </table>
 <h2 id="5-8-08_施設">5-8. 08_施設</h2>
-<p>施設データは以下のサブフォルダに分けて格納します。各サブフォルダには「設定年」と「最新年」のデータを格納します。</p>
+<p>施設データは以下のサブフォルダに分けて格納します。各サブフォルダには「設定年」と「最新年」のデータを格納します。（任意）</p>
 <h3 id="5-8-1-1_行政機能">5-8-1. 1_行政機能</h3>
 <p><strong>設定年</strong></p>
 <table>
@@ -647,7 +728,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;1_行政機能&gt;設定年</td>
+<td>08_施設/1_行政機能/設定年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -682,7 +767,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;1_行政機能&gt;最新年</td>
+<td>08_施設/1_行政機能/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -718,7 +807,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;2_文化交流機能&gt;設定年/最新年</td>
+<td>08_施設/2_文化交流機能/設定年/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -754,7 +847,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;3_介護福祉機能&gt;設定年</td>
+<td>08_施設/3_介護福祉機能/設定年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -789,7 +886,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;3_介護福祉機能&gt;最新年</td>
+<td>08_施設/3_介護福祉機能/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -825,7 +926,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;4_医療機能&gt;設定年</td>
+<td>08_施設/4_医療機能/設定年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -860,7 +965,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;4_医療機能&gt;最新年</td>
+<td>08_施設/4_医療機能/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -896,7 +1005,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;5_教育機能&gt;設定年</td>
+<td>08_施設/5_教育機能/設定年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -931,7 +1044,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;5_教育機能&gt;最新年</td>
+<td>08_施設/5_教育機能/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -966,7 +1083,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;6_子育て機能&gt;設定年/最新年</td>
+<td>08_施設/6_子育て機能/設定年/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1001,7 +1122,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;7_商業機能&gt;設定年/最新年</td>
+<td>08_施設/7_商業機能/設定年/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1009,7 +1134,7 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 </tr>
 <tr>
 <td>URL</td>
-<td><a href="https://www.nipponsoft.co.jp/solution/greenpage/">https://www.nipponsoft.co.jp/solution/greenpage/</a></td>
+<td>―</td>
 </tr>
 <tr>
 <td>データ作成年度</td>
@@ -1036,7 +1161,11 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tbody>
 <tr>
 <td>格納フォルダ名</td>
-<td>08_施設&gt;8_都市機能誘導施設&gt;設定年/最新年</td>
+<td>08_施設/8_都市機能誘導施設/設定年/最新年</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1074,6 +1203,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>09_避難所</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「避難施設」</td>
 </tr>
@@ -1107,6 +1240,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>10_250mメッシュ</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>必須</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1145,6 +1282,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>11_250mメッシュ人口</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>必須</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>e-stat「統計データ&gt;国勢調査&gt;2010年&gt;5次メッシュ（250mメッシュ）&gt;男女別人口総数及び世帯総数」</td>
 </tr>
@@ -1178,6 +1319,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>11_250mメッシュ人口</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>必須</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1215,6 +1360,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>11_250mメッシュ人口</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>必須</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>e-stat「統計データ&gt;国勢調査&gt;2020年&gt;5次メッシュ（250mメッシュ）&gt;人口及び世帯（JGD2011）&gt;第1次地域区画」</td>
 </tr>
@@ -1248,6 +1397,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>12_500mメッシュ別将来人口</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>必須</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1285,12 +1438,16 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>13_変化度マップ（建物変化）</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
-<td>―</td>
+<td>国より提供</td>
 </tr>
 <tr>
 <td>URL</td>
-<td><a href="https://app.box.com/file/2032738429723">https://app.box.com/file/2032738429723</a></td>
+<td>-</td>
 </tr>
 <tr>
 <td>データ作成年度</td>
@@ -1318,6 +1475,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>14_土地利用細分化メッシュ</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1355,6 +1516,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>15_ハザードエリア計画規模</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「洪水浸水想定区域（1次メッシュ単位）」</td>
 </tr>
@@ -1388,6 +1553,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>16_ハザードエリア想定最大規模</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1425,6 +1594,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>17_ハザードエリア高潮浸水想定区域</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「高潮浸水想定区域」</td>
 </tr>
@@ -1458,6 +1631,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>18_ハザードエリア津波浸水想定区域</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1495,6 +1672,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>19_ハザードエリア土砂災害</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「土砂災害警戒区域」</td>
 </tr>
@@ -1528,6 +1709,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>20_ハザードエリア氾濫流</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1565,8 +1750,12 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>21_誘導区域</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>必須 ※1</td>
+</tr>
+<tr>
 <td>入手先</td>
-<td>国土交通省「都市計画情報」</td>
+<td>国土交通省_都市計画決定GISオープンデータ</td>
 </tr>
 <tr>
 <td>URL</td>
@@ -1586,6 +1775,7 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 </tr>
 </tbody>
 </table>
+<p>※1 22_仮想居住誘導区域のデータがある場合は任意となります。</p>
 <h2 id="5-22-22_仮想居住誘導区域">5-22. 22_仮想居住誘導区域</h2>
 <table>
 <thead>
@@ -1598,6 +1788,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>22_仮想居住誘導区域</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1637,6 +1831,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>23_地価公示</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「地価公示」</td>
 </tr>
@@ -1670,6 +1868,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>23_地価公示</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1707,6 +1909,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>23_地価公示</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>国土数値情報「地価公示」</td>
 </tr>
@@ -1742,8 +1948,12 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>24_空き家ポイント</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
-<td>―</td>
+<td>各自治体保有データ</td>
 </tr>
 <tr>
 <td>URL</td>
@@ -1776,6 +1986,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>25_固定資産の価格等の概要調書</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
@@ -1814,6 +2028,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>25_固定資産の価格等の概要調書</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>総務省「平成27年度 固定資産の価格等の概要調書」</td>
 </tr>
@@ -1849,6 +2067,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <td>25_固定資産の価格等の概要調書</td>
 </tr>
 <tr>
+<td>必須/任意</td>
+<td>任意</td>
+</tr>
+<tr>
 <td>入手先</td>
 <td>総務省「令和2年度 固定資産の価格等の概要調書」</td>
 </tr>
@@ -1871,6 +2093,7 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 </tbody>
 </table>
 <h2 id="5-26-26_市町村別決算状況調">5-26. 26_市町村別決算状況調</h2>
+<p>必須/任意: 任意</p>
 <p>以下の年度のデータを格納します。</p>
 <table>
 <thead>
@@ -1963,6 +2186,10 @@ C:\Users\{UserName}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins
 <tr>
 <td>格納フォルダ名</td>
 <td>27_人口集中地区</td>
+</tr>
+<tr>
+<td>必須/任意</td>
+<td>任意</td>
 </tr>
 <tr>
 <td>入手先</td>
