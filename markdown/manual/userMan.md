@@ -127,4 +127,10 @@
 
 ![](../resources/userMan/tutorial_019.png)
 
+3. データがzip形式にまとめて出力されます。
+
+![](../resources/userMan/tutorial_020.png)
+
+![](../resources/userMan/tutorial_021.png)
+
 ---
