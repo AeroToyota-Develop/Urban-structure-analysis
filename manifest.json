@@ -395,6 +395,16 @@
     },
     {
       "type": "Resource",
+      "source_relative_path": "resources/操作マニュアル参考資料.pdf",
+      "output": {
+        "resource": {
+          "relative_path": "resources/操作マニュアル参考資料.pdf"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
       "source_relative_path": "styles/main.css",
       "output": {
         "resource": {
