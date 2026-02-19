@@ -65,6 +65,16 @@
     },
     {
       "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_000.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_000.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
       "source_relative_path": "resources/advancedMan/tutorial_001.png",
       "output": {
         "resource": {
