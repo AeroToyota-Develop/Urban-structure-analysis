@@ -65,6 +65,86 @@
     },
     {
       "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_001.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_001.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_002.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_002.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_003.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_003.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_004.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_004.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_005.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_005.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_006.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_006.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_007.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_007.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
+      "source_relative_path": "resources/advancedMan/tutorial_008.png",
+      "output": {
+        "resource": {
+          "relative_path": "resources/advancedMan/tutorial_008.png"
+        }
+      },
+      "version": ""
+    },
+    {
+      "type": "Resource",
       "source_relative_path": "resources/devMan/tutorial_001.png",
       "output": {
         "resource": {
