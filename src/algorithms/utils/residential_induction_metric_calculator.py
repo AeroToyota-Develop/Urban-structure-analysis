@@ -73,7 +73,7 @@ class ResidentialInductionMetricCalculator:
             if not population_target_settings_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "population_target_settings"))
-            
+
             if not zones_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "zones"))
@@ -127,12 +127,12 @@ class ResidentialInductionMetricCalculator:
                 target_zones_data = target_zones_layer.dataProvider()
                 target_zones_data.addAttributes(zones_layer.fields())
                 target_zones_layer.updateFields()
-                
+
                 target_zones_features = []
                 for zone_feature in zones_layer.getFeatures():
                     if zone_feature["is_target"] == 1:
                         target_zones_features.append(zone_feature)
-                
+
                 if target_zones_features:
                     target_zones_data.addFeatures(target_zones_features)
                     target_zones_layer.updateExtents()
@@ -162,7 +162,7 @@ class ResidentialInductionMetricCalculator:
                 )
                 # 空の結果を返す
                 return []
-            
+
             # 建物の重心を計算
             centroids_result = processing.run(
                 "native:centroids",
@@ -338,7 +338,7 @@ class ResidentialInductionMetricCalculator:
                     'OUTPUT': 'memory:',
                 },
             )['OUTPUT']
-            
+
             # 立地適正化計画区域の面積計算用にCRS変換（必要な場合）
             transformed_induction_layer = processing.run(
                 "native:reprojectlayer",
@@ -398,8 +398,8 @@ class ResidentialInductionMetricCalculator:
 
                 year_field = f"{year}_population"
 
-                # 総人口を集計
-                total_pop_result = buildings_layer.aggregate(
+                # 総人口を集計（行政区域 is_target=1 内）
+                total_pop_result = centroid_layer.aggregate(
                     QgsAggregateCalculator.Aggregate.Sum,
                     year_field,
                     QgsAggregateCalculator.AggregateParameters(),
@@ -432,75 +432,16 @@ class ResidentialInductionMetricCalculator:
                     int(sum_result[0]) if sum_result[0] is not None else 0
                 )
 
-                # 居住誘導区域外人口
-                # outside_area_pop = total_pop - area_pop
-
                 # 居住誘導区域内人口割合（Rate_Pop）
                 rate_pop = (
                     self.round_or_na(area_pop / total_pop, 3)
                     if total_pop > 0
                     else 0
                 )
-                # outside_rate_pop = (
-                #     self.round_or_na((outside_area_pop / total_pop) * 100, 2)
-                #     if total_pop > 0
-                #     else 0
-                # )
-
                 # 居住誘導区域内人口密度を計算
                 pop_area_density = (
                     self.round_or_na(area_pop / area, 2) if area > 0 else '―'
                 )  # haあたりの人口密度
-                # pop_outside_area_density = (
-                #     self.round_or_na(outside_area_pop / outside_area, 2)
-                #     if outside_area > 0
-                #     else '―'
-                # )
-
-                # # 各年齢層のフィールド名を設定
-                # age_fields = {
-                #     "Age0-14s": f"{year}_age_0_14",
-                #     "Age15-64s": f"{year}_age_15_64",
-                #     "Age65AndOver": f"{year}_age_65_",
-                #     "Age75AndOver": f"{year}_age_75_total",
-                #     "Age85AndOver": f"{year}_age_85_total",
-                #     "Age95AndOver": f"{year}_age_95_total",
-                # }
-
-                # area_pop_by_age = {}
-                # rate_pop_by_age = {}
-                # density_pop_by_age = {}
-                # for age_key, age_field in age_fields.items():
-                #     # 各年齢層の人口関連計算
-                #     # 人口
-                #     age_pop_result = residential_buildings.aggregate(
-                #         QgsAggregateCalculator.Aggregate.Sum,
-                #         age_field,
-                #         QgsAggregateCalculator.AggregateParameters(),
-                #     )
-                #     area_pop_by_age[f"Pop_Area_{age_key}"] = (
-                #         int(age_pop_result[0])
-                #         if age_pop_result[0] is not None
-                #         else 0
-                #     )
-                #     # 人口割合
-                #     rate_pop_by_age[f"Rate_Pop_Area_{age_key}"] = (
-                #         self.round_or_na(
-                #             (area_pop_by_age[f"Pop_Area_{age_key}"] / total_pop)
-                #             * 100,
-                #             2,
-                #         )
-                #         if total_pop > 0
-                #         else '―'
-                #     )
-                #     # 人口密度
-                #     density_pop_by_age[f"Rate_Pop_Area_Density_{age_key}"] = (
-                #         self.round_or_na(
-                #             area_pop_by_age[f"Pop_Area_{age_key}"] / area, 1
-                #         )
-                #         if area > 0
-                #         else '―'
-                #     )
 
                 # 前年度のデータがあれば、変化率を計算
                 if data_list:
@@ -513,11 +454,6 @@ class ResidentialInductionMetricCalculator:
                     previous_pop_area_density = previous_year_data[
                         'pop_density_rpa'
                     ]
-                    # 前年度の居住誘導区域外の人口密度
-                    # previous_pop_outside_area_density = previous_year_data[
-                    #     'Pop_Outside TheArea_Density'
-                    # ]
-
                     # 総人口の変化率を計算
                     if isinstance(total_pop, (int, float)) and isinstance(
                         previous_total_pop, (int, float)
@@ -570,119 +506,11 @@ class ResidentialInductionMetricCalculator:
                     else:
                         rate_density_change = '―'
 
-                    # # 居住誘導区域外人口密度の変化率
-                    # if isinstance(
-                    #     pop_outside_area_density, (int, float)
-                    # ) and isinstance(
-                    #     previous_pop_outside_area_density, (int, float)
-                    # ):
-                    #     pop_outside_rate_density_change = (
-                    #         self.round_or_na(
-                    #             (
-                    #                 (
-                    #                     pop_outside_area_density
-                    #                     - previous_pop_outside_area_density
-                    #                 )
-                    #                 / previous_pop_outside_area_density
-                    #             )
-                    #             * 100,
-                    #             1,
-                    #         )
-                    #         if previous_pop_outside_area_density > 0
-                    #         else '―'
-                    #     )
-                    # else:
-                    #     pop_outside_rate_density_change = '―'
-
-                    # # 各年齢層の人口割合の変化率と人口密度の変化率
-                    # rate_pop_area_change_by_age = {}
-                    # rate_pop_area_density_change_by_age = {}
-                    # for age_key in age_fields.keys():
-                    #     # 前年度の人口割合を取得
-                    #     previous_rate_pop_by_age = previous_year_data.get(
-                    #         f"Rate_Pop_Area_{age_key}", 0
-                    #     )
-                    #     current_rate_pop_by_age = rate_pop_by_age.get(
-                    #         f"Rate_Pop_Area_{age_key}", 0
-                    #     )
-                    #     # 人口割合の変化率を計算
-                    #     if isinstance(
-                    #         current_rate_pop_by_age, (int, float)
-                    #     ) and isinstance(
-                    #         previous_rate_pop_by_age, (int, float)
-                    #     ):
-                    #         rate_pop_area_change_by_age[
-                    #             f"Rate_Pop_Area_Change_{age_key}"
-                    #         ] = (
-                    #             self.round_or_na(
-                    #                 (
-                    #                     (
-                    #                         current_rate_pop_by_age
-                    #                         - previous_rate_pop_by_age
-                    #                     )
-                    #                     / previous_rate_pop_by_age
-                    #                 )
-                    #                 * 100,
-                    #                 1,
-                    #             )
-                    #             if previous_rate_pop_by_age > 0
-                    #             else '―'
-                    #         )
-                    #     else:
-                    #         rate_pop_area_change_by_age[
-                    #             f"Rate_Pop_Area_Change_{age_key}"
-                    #         ] = '―'
-                    #     # 前年度の人口密度を取得
-                    #     previous_pop_area_density_by_age = (
-                    #         previous_year_data.get(
-                    #             f"Rate_Pop_Area_Density_{age_key}", 0
-                    #         )
-                    #     )
-                    #     current_density_pop_by_age = density_pop_by_age.get(
-                    #         f"Rate_Pop_Area_Density_{age_key}", 0
-                    #     )
-                    #     # 人口密度の変化率を計算
-                    #     if isinstance(
-                    #         current_density_pop_by_age, (int, float)
-                    #     ) and isinstance(
-                    #         previous_pop_area_density_by_age, (int, float)
-                    #     ):
-                    #         rate_pop_area_density_change_by_age[
-                    #             f"Rate_Pop_Area_Change_Density_{age_key}"
-                    #         ] = (
-                    #             self.round_or_na(
-                    #                 (
-                    #                     (
-                    #                         current_density_pop_by_age
-                    #                         - previous_pop_area_density_by_age
-                    #                     )
-                    #                     / previous_pop_area_density_by_age
-                    #                 )
-                    #                 * 100,
-                    #                 1,
-                    #             )
-                    #             if previous_pop_area_density_by_age > 0
-                    #             else '―'
-                    #         )
-                    #     else:
-                    #         rate_pop_area_density_change_by_age[
-                    #             f"Rate_Pop_Area_Change_Density_{age_key}"
-                    #         ] = '―'
-
                 else:
                     rate_pop_change = '―'
                     rate_area_pop_change = '―'
                     rate_density_change = '―'
                     pop_outside_rate_density_change = '―'
-
-                    # rate_pop_area_change_by_age = {
-                    #     f"Rate_Pop_Area_Change_{age_key}": '―'
-                    #     for age_key in age_fields.keys()
-                    # }
-                    # rate_pop_area_density_change_by_age = {
-                    #     f"Rate_Pop_Area_Change_Density_{age_key}": '―'
-                    #     for age_key in age_fields.keys()
-                    # }
 
                 # 最後の年度だけ将来人口関連の計算を行う
                 if i == len(unique_years) - 1:

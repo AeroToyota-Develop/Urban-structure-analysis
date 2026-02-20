@@ -88,7 +88,7 @@ class DialogHelper(QObject):
             msg_box.setDefaultButton(QMessageBox.No)
 
             response = msg_box.exec_()
-            self._yes_clicked = (response == QMessageBox.Yes)
+            self._yes_clicked = response == QMessageBox.Yes
 
             self.question_finished.emit(self._yes_clicked)
 

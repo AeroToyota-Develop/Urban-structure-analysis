@@ -538,7 +538,7 @@ class TransportationDataGenerator:
                 required_fields = {
                     "N07_001",  # 事業者名
                 }  # 必須フィールド（N07_001のみ必須とする）
-                
+
                 if not required_fields.issubset(layer_fields):
                     data_name = self.tr("bus network")
                     msg = (
@@ -672,7 +672,7 @@ class TransportationDataGenerator:
                     "P11_001",  # バス停名
                     "P11_002",  # バス事業者名
                 }  # 必須フィールド
-                
+
                 if not required_fields.issubset(layer_fields):
                     data_name = self.tr("bus stop")
                     msg = (

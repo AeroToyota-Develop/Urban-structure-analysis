@@ -5034,7 +5034,7 @@
           <z-index>55</z-index>
           <datalist>
             <data>
-              <value>100</value>
+              <value>threshold_bus</value>
               <label_name></label_name>
               <borderStyle>solid</borderStyle>
               <borderColor>55,128,0,255</borderColor>
@@ -5265,7 +5265,7 @@
           <z-index>55</z-index>
           <datalist>
             <data>
-              <value>100</value>
+              <value>threshold_bus</value>
               <label_name></label_name>
               <borderStyle>solid</borderStyle>
               <borderColor>55,128,0,255</borderColor>
@@ -5496,7 +5496,7 @@
           <z-index>55</z-index>
           <datalist>
             <data>
-              <value>100</value>
+              <value>threshold_bus</value>
               <label_name></label_name>
               <borderStyle>solid</borderStyle>
               <borderColor>55,128,0,255</borderColor>

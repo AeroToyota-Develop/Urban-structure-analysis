@@ -116,7 +116,7 @@ class UrbanFunctionInductionMetricCalculator:
             urban_area_data = urban_area_layer.dataProvider()
             urban_area_data.addAttributes(induction_layer.fields())
             urban_area_layer.updateFields()
-            
+
             urban_area_features = []
             has_urban_area = False
             for induction_feature in induction_layer.getFeatures():
@@ -466,7 +466,7 @@ class UrbanFunctionInductionMetricCalculator:
                         type0_urban_count_latest = 0
 
                 type0_share_latest = self.round_or_na(type0_urban_count_latest / type0_admin_count_latest, 3) if type0_admin_count_latest > 0 else 0
-                
+
                 # type=1~7の一定の都市機能の計算
                 type1to7_types = [1, 2, 3, 4, 5, 6, 7]
                 type1to7_admin_total = sum(total_qty_facilities.get(t, 0) for t in type1to7_types)
@@ -482,22 +482,22 @@ class UrbanFunctionInductionMetricCalculator:
                     'care_medical': [5, 3],  # 介護福祉＋医療
                     'commercial': [2]  # 商業
                 }
-                
+
                 # 設定年の施設種別組み合わせ計算
                 category_totals = {}
                 category_urban_totals = {}
                 category_shares = {}
                 category_residential_totals = {}
                 category_residential_shares = {}
-                
+
                 for category_name, types in facility_categories.items():
                     admin_count = sum(total_qty_facilities.get(t, 0) for t in types)
                     urban_count = sum(qty_facilities_in_urban_area.get(t, 0) for t in types)
                     residential_count = sum(qty_facilities_in_residential_area.get(t, 0) for t in types)
-                    
+
                     urban_share = self.round_or_na(urban_count / admin_count, 3) if admin_count > 0 else 0
                     residential_share = self.round_or_na(residential_count / admin_count, 3) if admin_count > 0 else 0
-                    
+
                     category_totals[category_name] = admin_count
                     category_urban_totals[category_name] = urban_count
                     category_shares[category_name] = urban_share
@@ -511,26 +511,26 @@ class UrbanFunctionInductionMetricCalculator:
                 ufia_facility_share_delta_education_childcare = '―'
                 ufia_facility_share_delta_care_medical = '―'
                 ufia_facility_share_delta_commercial = '―'
-                
+
                 rpa_facility_share_delta_total = '―'
                 rpa_facility_share_delta_admin_culture = '―'
                 rpa_facility_share_delta_education_childcare = '―'
                 rpa_facility_share_delta_care_medical = '―'
                 rpa_facility_share_delta_commercial = '―'
-                
+
                 if data_list:
                     previous_data = data_list[-1]
-                    
+
                     # 都市機能誘導区域の変化
                     prev_share = previous_data.get('ufia_facility_share_total', 0)
                     if isinstance(prev_share, (int, float)):
                         ufia_facility_share_delta_total = self.round_or_na(type1to7_share_total - prev_share, 2)
-                    
+
                     # 居住誘導区域の変化
                     prev_residential_share = previous_data.get('rpa_facility_share_total', 0)
                     if isinstance(prev_residential_share, (int, float)):
                         rpa_facility_share_delta_total = self.round_or_na(type1to7_residential_share_total - prev_residential_share, 2)
-                    
+
                     for category_name in facility_categories.keys():
                         # 都市機能誘導区域の施設種別変化
                         prev_category_share = previous_data.get(f'ufia_facility_share_{category_name}', 0)
@@ -544,7 +544,7 @@ class UrbanFunctionInductionMetricCalculator:
                                 ufia_facility_share_delta_care_medical = self.round_or_na(current_share - prev_category_share, 2)
                             elif category_name == 'commercial':
                                 ufia_facility_share_delta_commercial = self.round_or_na(current_share - prev_category_share, 2)
-                        
+
                         # 居住誘導区域の施設種別変化
                         prev_residential_category_share = previous_data.get(f'rpa_facility_share_{category_name}', 0)
                         if isinstance(prev_residential_category_share, (int, float)):

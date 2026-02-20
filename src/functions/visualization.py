@@ -105,14 +105,12 @@ def check_virtual_flag(csv_path, column_name):
         value = df[column_name].iloc[-1]
 
         # 0なら仮想（True）、1なら非仮想（False）
-        is_virtual = (int(value) == 0)
-        print(f"Debug: Virtual check - CSV: {csv_path}, Column: {column_name}, Value: {value} (latest row), IsVirtual: {is_virtual}")
+        is_virtual = int(value) == 0
         return is_virtual
 
     except Exception as e:
         print(f"Error checking virtual flag: {e}")
         return False
-
 
 def load_config(datalist_file, config_file, config_file_custom=None):
     """
@@ -236,7 +234,7 @@ def load_config(datalist_file, config_file, config_file_custom=None):
             datalist.append({
                 'title': safe_find(data, 'title', 'No Name'),
                 'path': safe_find(data, 'path'),
-                'type': safe_find(data, 'type', 'Percentbar'),
+                'type': safe_find(data, 'type', 'MultiColorBar'),
                 'addline': safe_find(data, 'addline', 'false'),
                 'x': safe_find(data, 'x'),
                 'y': safe_find(data, 'y', '').split(','),
@@ -245,8 +243,8 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                     data, 'bar_label_rotate', 'false'
                 ),
                 'color': colors,
-                'label_type': safe_find(data,'label_type', 'edge'),
-                'label_format': safe_find(data,'label_format', '1'),
+                'label_type': safe_find(data, 'label_type', 'edge'),
+                'label_format': safe_find(data, 'label_format', '1'),
                 'x_labels': x_labels,
                 'is_display_legend': safe_find(
                     data, 'is_display_legend', 'false'
@@ -267,8 +265,8 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                     data, 'scale_to_percentage', 'false'
                 ),
                 'g_pos': g_pos,
-                'text_box_label':safe_find(data, 'text_box_label', ''),
-                'text_box_color':safe_find(data, 'text_box_color', ''),
+                'text_box_label': safe_find(data, 'text_box_label', ''),
+                'text_box_color': safe_find(data, 'text_box_color', ''),
                 'g_label': g_label,
                 'legends_label': legends_label,
                 'legends_color': legends_color,
@@ -292,8 +290,6 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                 'virtual_check_column': safe_find(data, 'virtual_check_column', '')
             })
 
-        if item_val not in datasets:
-            datasets[item_val] = {}
         datasets[item_val] = {
             'layout': layout, 
             'layout_config': layout_config, 
@@ -302,7 +298,6 @@ def load_config(datalist_file, config_file, config_file_custom=None):
 
     # カスタム設定ファイルがある場合は上書き
     if config_file_custom and os.path.exists(config_file_custom):
-        print(f"Debug: Loading custom config from {config_file_custom}")
         try:
             custom_tree = ET.parse(config_file_custom)
             custom_root = custom_tree.getroot()
@@ -330,7 +325,6 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                         'rows': int(safe_find(layout_config_elem, 'rows', '1')) if layout_config_elem is not None else 1
                     }
 
-                print(f"Debug: Custom config - item_val={item_val}, layout={layout}")
                 datalist = []
                 for data in dataset.find('datalist'):
                     colors = []
@@ -393,7 +387,7 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                     datalist.append({
                         'title': safe_find(data, 'title', 'No Name'),
                         'path': safe_find(data, 'path'),
-                        'type': safe_find(data, 'type', 'Percentbar'),
+                        'type': safe_find(data, 'type', 'MultiColorBar'),
                         'addline': safe_find(data, 'addline', 'false'),
                         'x': safe_find(data, 'x'),
                         'y': safe_find(data, 'y', '').split(','),
@@ -402,8 +396,8 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                             data, 'bar_label_rotate', 'false'
                         ),
                         'color': colors,
-                        'label_type': safe_find(data,'label_type', 'edge'),
-                        'label_format': safe_find(data,'label_format', '1'),
+                        'label_type': safe_find(data, 'label_type', 'edge'),
+                        'label_format': safe_find(data, 'label_format', '1'),
                         'x_labels': x_labels,
                         'is_display_legend': safe_find(
                             data, 'is_display_legend', 'false'
@@ -424,8 +418,8 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                             data, 'scale_to_percentage', 'false'
                         ),
                         'g_pos': g_pos,
-                        'text_box_label':safe_find(data, 'text_box_label', ''),
-                        'text_box_color':safe_find(data, 'text_box_color', ''),
+                        'text_box_label': safe_find(data, 'text_box_label', ''),
+                        'text_box_color': safe_find(data, 'text_box_color', ''),
                         'g_label': g_label,
                         'legends_label': legends_label,
                         'legends_color': legends_color,
@@ -455,21 +449,18 @@ def load_config(datalist_file, config_file, config_file_custom=None):
                     'layout_config': layout_config, 
                     'data': datalist
                 }
-                print(f"Debug: Overwritten dataset {item_val} with layout={layout}, data_count={len(datalist)}")
         except Exception as e:
             print(f"Error loading custom config: {e}")
 
     # GraphColorManager の適用
     try:
         color_manager = GraphColorManager(_color_file, True)  # True=上書きモード
-        overwrite_mode = True  # ← ここで TRUE/FALSE を切り替える
+        overwrite_mode = True
         color_manager.update_visualization_colors(datasets, overwrite_mode)
-        print("Debug: GraphColorManagerによる色設定適用完了")
     except Exception as e:
         print(f"Warning: GraphColorManager適用エラー: {e}")
 
     return data_items, years, datasets
-
 
 def format_number_1f(x):
     """
@@ -483,7 +474,6 @@ def format_number_1f(x):
     """
     return f'{x:.1f}'
 
-
 def format_number_2f(x):
     """
     小数点以下2桁で数値をフォーマットする
@@ -495,7 +485,6 @@ def format_number_2f(x):
     :rtype: str
     """
     return f'{x:.2f}'
-
 
 def format_number_hundred(x):
     """
@@ -509,7 +498,7 @@ def format_number_hundred(x):
     """
     return f'{x:,}'
 
-def decimal_format(decimal_places, is_percentage_display = False, label_format = 1):
+def decimal_format(decimal_places, is_percentage_display=False, label_format='1'):
     """
     軸ラベルのformatter関数に小数点以下の桁数を渡す
 
@@ -523,6 +512,7 @@ def decimal_format(decimal_places, is_percentage_display = False, label_format =
     :return: フォーマット関数
     :rtype: function
     """
+
     def format_axis(x, _):
         """
         軸ラベルをフォーマットする
@@ -608,16 +598,12 @@ class GraphColorManager:
                         # '#'プレフィックスを追加（もし存在しない場合）
                         colors = [f'#{color}' if not color.startswith('#') else color for color in colors]
                         color_config[current_item_val] = colors
-                        print(f"Debug: item_val={current_item_val}の色設定を読み込み: {colors}")
                         current_item_val = None
 
-            print(f"Debug: GraphColorConfigから{len(color_config)}個の設定を読み込み")
             return color_config
 
         except Exception as e:
             print(f"GraphColorConfig.xml読み込みエラー: {e}")
-            import traceback
-            traceback.print_exc()
             return {}
 
     def update_visualization_colors(self, datasets, overwrite_mode=True):
@@ -632,29 +618,23 @@ class GraphColorManager:
                 False = VisualizationConfigで未設定のときだけ補完
         """
         if not self.use_custom_colors or not self.color_config:
-            print("Debug: カスタム色が無効またはカラー設定が空です")
             return
-
-        print(f"Debug: {len(datasets)}個のデータセットを処理中、モード={'上書き' if overwrite_mode else '未設定時のみ設定'}")
 
         for dataset_key, dataset in datasets.items():
             try:
                 item_val = int(dataset_key)
             except (ValueError, TypeError):
-                print(f"Debug: dataset_key '{dataset_key}' を整数に変換できませんでした")
                 continue
 
             custom_colors = self.color_config.get(item_val)
             if not custom_colors:
-                print(f"Debug: item_val {item_val} に対応する色設定がありません")
                 continue
 
             dataset_data = dataset if isinstance(dataset, list) else dataset.get('data', [])
 
-            for data_idx, data_item in enumerate(dataset_data):
+            for data_item in dataset_data:
                 # YearsbarはplotCatch時に_prepare_yearsbar_colors()で処理するのでここではスキップ
                 if data_item.get('type') == 'Yearsbar':
-                    print(f"Debug: Yearsbar data[{data_idx}] はplot時に処理するためスキップ")
                     continue
 
                 # 通常のStackedbar/Seriesbar等の処理
@@ -677,11 +657,9 @@ class GraphColorManager:
                 should_update = False
                 if overwrite_mode:
                     should_update = True
-                    print(f"Debug: data[{data_idx}] 上書きモードで色を更新")
                 else:
                     if not existing_colors or all(not color for color in existing_colors):
                         should_update = True
-                        print(f"Debug: data[{data_idx}] 未設定のため色を設定")
 
                 if should_update:
                     graph_type = data_item.get('type', '')
@@ -696,8 +674,6 @@ class GraphColorManager:
                         updated_colors = self._get_colors_by_graph_count(custom_colors, y_count)
 
                     data_item['color'] = updated_colors
-                    print(f"Debug: data[{data_idx}] の色を更新完了 - y_count={y_count}, new_colors={updated_colors}")
-
 
     def _get_colors_by_graph_count(self, custom_colors, graph_count):
         """
@@ -717,21 +693,12 @@ class GraphColorManager:
             for i in range(graph_count):
                 color_index = (i + 1) % len(custom_colors)  # インデックス1から開始
                 result_colors.append(custom_colors[color_index])
-            print(f"Debug: 2本グラフ - 1つ目をスキップ: {result_colors}")
-
-        elif graph_count == 3:
-            # 3本の場合：そのまま1つ目・2つ目・3つ目の色を使用
-            for i in range(graph_count):
-                color_index = i % len(custom_colors)
-                result_colors.append(custom_colors[color_index])
-            print(f"Debug: 3本グラフ - そのまま適用: {result_colors}")
 
         else:
             # その他の本数の場合：通常の循環処理
             for i in range(graph_count):
                 color_index = i % len(custom_colors)
                 result_colors.append(custom_colors[color_index])
-            print(f"Debug: {graph_count}本グラフ - 通常処理: {result_colors}")
 
         return result_colors
 
@@ -875,7 +842,6 @@ class ControlDock(QDockWidget):
         """サブプロットを更新するシグナルを発信します"""
         self.plotSignal_sub.emit(self.get_current_sub_item_value())
 
-
 class GraphDock(QDockWidget):
     """
     グラフを表示するためのdockwidget
@@ -908,7 +874,6 @@ class GraphDock(QDockWidget):
             DockWidgetを初期化し、ウィンドウタイトルを設定します。
         setup_translator(translator): 国際化のための翻訳機能を設定します。
         setup_ui(): ユーザーインターフェースを設定します。
-        check_colors(): デフォルトの色と指定された色をマージする機能。
         update_plots_and_layer_coloring(data_item, year): メイングラフタブと修正区域タブのプロットとレイヤーの色を更新します。
         update_plots(data_item): 選択されたデータ項目と年に基づいてメイングラフタブのプロットを更新します。
         update_revision_area_plots(data_item): 修正区域タブのプロットを更新します（RevisedAreaVisualizationConfig.xmlを使用）。
@@ -927,10 +892,6 @@ class GraphDock(QDockWidget):
                         label_type='edge', label_format='1',
                         is_display_bar_label=True):
             Seriesbarグラフをプロットします。
-        plot_percent_bar(ax, x, df, y_columns, add_line=False, colors=None,
-                        change_rates=None,legends=None, _bar_label_rotate=False,
-                        is_display_bar_label=True):
-            Percentbarグラフをプロットします。
         plot_years_bar(ax, df, data, colors,
                         label_type='edge', label_format='1',
                         is_display_bar_label=True):
@@ -943,8 +904,6 @@ class GraphDock(QDockWidget):
             Yearsbarのみにデフォルトと指定された色をマージする機能。
         get_max_value(dict_values): 最大の数値を見つける関数。
         get_min_value(dict_values): 最小の数値を見つける関数。
-        check_non_numeric_values(values): リスト内の非数値の値をチェックする関数。
-        add_solid_line(ax, bars, y_bases=None): 棒グラフに実線を追加する関数。
         add_dashed_line(ax, bars, y_bases=None): 棒グラフに破線を追加する関数。
         resizeEvent(event): リサイズイベントを処理する関数。
         adjust_figure_sizes(): ウィジェットのサイズに基づいて図のサイズを調整する関数。
@@ -1040,15 +999,10 @@ class GraphDock(QDockWidget):
 
         # 修正区域用の設定を読み込み
         self.revised_area_datasets = {}
-        print(f"Debug: Checking RevisedAreaVisualizationConfig.xml at: {_revised_area_config_file}")
         if os.path.exists(_revised_area_config_file):
-            print(f"Debug: RevisedAreaVisualizationConfig.xml exists, loading...")
             _, _, self.revised_area_datasets = load_config(
                 self.datalist_file, _revised_area_config_file, None
             )
-            print(f"Debug: Loaded revised_area_datasets: {list(self.revised_area_datasets.keys())}")
-        else:
-            print(f"Debug: RevisedAreaVisualizationConfig.xml does not exist, will use fallback")
 
         # GraphColorManagerを初期化
         self.color_manager = GraphColorManager(_color_file, True)
@@ -1126,36 +1080,6 @@ class GraphDock(QDockWidget):
                         data_list['color'][i] = _default_colors[i % len(_default_colors)]
                     # GraphColorConfigで設定された色は保護（_default_colorsにない色でも許可）
 
-    def set_color_overwrite_mode(self, overwrite_mode):
-        """
-        色の上書きモードを設定して色を再適用?
-
-        Args:
-            overwrite_mode (bool):
-                True  = 常にGraphColorConfigで上書き
-                False = VisualizationConfigで未設定のときだけ補完
-        """
-        self.check_colors_with_custom_config(overwrite_mode)
-
-    def check_colors(self):
-        """デフォルトの色と指定された色をマージする機能"""
-        for dataset in self.datasets.values():
-            dataset_data = dataset if isinstance(dataset, list) else dataset.get('data', [])
-            for data_list in dataset_data:
-                # MultiColorBarの場合は複数色を保持（y要素が1つでも年数分の色が必要）
-                if data_list.get('type') != 'MultiColorBar' and len(data_list['y']) < len(data_list['color']):
-                    data_list['color'] = data_list['color'][
-                        :len(data_list['y'])
-                    ]
-                for i in range(len(data_list['y'])):
-                    if len(data_list['y']) > len(data_list['color']):
-                        data_list['color'].append(_default_colors[i])
-                    elif (
-                        data_list['color'][i] == ''
-                        or data_list['color'][i] not in _default_colors
-                    ):
-                        data_list['color'][i] = _default_colors[i]
-
     def update_plots_and_layer_coloring(self, data_item, year):
         """
         プロットとレイヤーの色を更新します
@@ -1183,14 +1107,12 @@ class GraphDock(QDockWidget):
             self.current_item_val = int(data_item) if isinstance(data_item, (int, str)) else data_item
         except (ValueError, TypeError):
             self.current_item_val = data_item
-        print(f"Debug: MainGraphDock - current_item_val set to {self.current_item_val}")
 
         for i in reversed(range(self.scroll_layout.count())):
             self.scroll_layout.itemAt(i).widget().setParent(None)
 
         if data_item in self.datasets:
             dataset = self.datasets[data_item]
-            print(f"Debug: data_item={data_item}, dataset type={type(dataset)}")
 
             # 新しい形式（辞書）か旧形式（リスト）かを判定
             if isinstance(dataset, dict):
@@ -1229,18 +1151,12 @@ class GraphDock(QDockWidget):
         datasets_to_use = None
         target_layout = self.revision_area_scroll_layout
 
-        print(f"Debug: revision area - data_item={data_item}")
-        print(f"Debug: revision area - revised_area_datasets keys={list(self.revised_area_datasets.keys()) if hasattr(self, 'revised_area_datasets') else 'None'}")
-        print(f"Debug: revision area - main datasets keys={list(self.datasets.keys()) if hasattr(self, 'datasets') else 'None'}")
-
         # 修正区域用の設定が存在し、かつ該当データがある場合
         if hasattr(self, 'revised_area_datasets') and self.revised_area_datasets and data_item in self.revised_area_datasets:
             datasets_to_use = self.revised_area_datasets
-            print(f"Debug: revision area - using revised_area_datasets")
         elif data_item in self.datasets:
             # 修正区域用の設定がない場合は、メイン設定をフォールバックとして使用
             datasets_to_use = self.datasets
-            print(f"Debug: revision area - using main datasets as fallback")
 
         if datasets_to_use:
             dataset = datasets_to_use[data_item]
@@ -1558,14 +1474,13 @@ class GraphDock(QDockWidget):
         :param target_layout: 追加先のレイアウト
         """
         if 'groups' not in layout_config:
-            print("Debug: No groups found in layout_config, falling back to vertical")
             self.create_vertical_plots_for_revision_area(datalist, target_layout)
             return
 
         groups = layout_config['groups']
         data_index = 0
 
-        for group_num, group in enumerate(groups):
+        for group in groups:
             columns = group['columns']
             rows = group['rows']
             data_count = group['data_count']
@@ -1766,12 +1681,12 @@ class GraphDock(QDockWidget):
             hatches.append(None)
 
         # x軸の位置の処理
-            g_pos = []
-            if 'g_pos' in data and data['g_pos']:
-                try:
-                    g_pos = data['g_pos']
-                except Exception as e:
-                    g_pos = []
+        g_pos = []
+        if 'g_pos' in data and data['g_pos']:
+            try:
+                g_pos = data['g_pos']
+            except Exception:
+                g_pos = []
 
         if data['type'] == 'Stackedbar':
             # x_labelの処理
@@ -1807,19 +1722,6 @@ class GraphDock(QDockWidget):
                 is_display_bar_label=bool(is_display_bar_label),
                 is_display_edgecolor=bool(is_display_edgecolor),
                 hatches=hatches,
-                scale_to_percentage=bool(scale_to_percentage),
-                fixed_range_0_to_100=bool(fixed_range_0_to_100),
-                y_axis_decimal_places=data['y_axis_decimal_places']
-            )
-        elif data['type'] == 'Percentbar':
-            self.plot_percent_bar(
-                ax, x, df, y_columns, bool(add_line),
-                colors, change_rates, legends,
-                _bar_label_rotate=bool(bar_label_rotate),
-                is_display_bar_label=bool(is_display_bar_label),
-                is_display_edgecolor=bool(is_display_edgecolor),
-                hatches=hatches,
-                scale_to_percentage=bool(scale_to_percentage),
                 fixed_range_0_to_100=bool(fixed_range_0_to_100),
                 y_axis_decimal_places=data['y_axis_decimal_places']
             )
@@ -1845,8 +1747,6 @@ class GraphDock(QDockWidget):
             # GraphColorManagerから適切な色を取得
             if hasattr(self, 'color_manager') and self.color_manager and self.color_manager.color_config:
                 item_val = getattr(self, 'current_item_val', None)
-                print(f"Debug: SingleYearBar - current_item_val={item_val}")
-                print(f"Debug: SingleYearBar - color_config keys={list(self.color_manager.color_config.keys())}")
                 if item_val is not None and item_val in self.color_manager.color_config:
                     graph_colors = self.color_manager.color_config[item_val]
                     if num_columns == 2:
@@ -1855,13 +1755,10 @@ class GraphDock(QDockWidget):
                     else:
                         # 全色使用
                         single_year_colors = graph_colors[:num_columns] if len(graph_colors) >= num_columns else graph_colors
-                    print(f"Debug: SingleYearBar GraphColor適用 item_val={item_val}, 結果={single_year_colors}")
                 else:
                     single_year_colors = colors
-                    print(f"Debug: SingleYearBar GraphColor未適用, 元の色を使用={colors}")
             else:
                 single_year_colors = colors
-                print(f"Debug: SingleYearBar GraphColorManager未初期化, 元の色を使用={colors}")
 
             self.plot_single_year_bar(
                 ax, df, data, single_year_colors,
@@ -1904,7 +1801,6 @@ class GraphDock(QDockWidget):
                 is_display_edgecolor=bool(is_display_edgecolor),
                 hatches=hatches,
                 is_percentage_display=bool(is_percentage_display),
-                scale_to_percentage=bool(scale_to_percentage),
                 fixed_range_0_to_100=bool(fixed_range_0_to_100),
                 y_axis_decimal_places=data['y_axis_decimal_places']
             )
@@ -1914,7 +1810,7 @@ class GraphDock(QDockWidget):
             if 'x_labels' in data and data['x_labels']:
                 try:
                     x_label_list = data['x_labels']
-                except Exception as e:
+                except Exception:
                     x_label_list = []
 
             # グラフに表示するカラム名の処理
@@ -1922,7 +1818,7 @@ class GraphDock(QDockWidget):
             if 'g_label' in data and data['g_label']:
                 try:
                     g_label = data['g_label']
-                except Exception as e:
+                except Exception:
                     g_label = []
 
             # 凡例のラベルの処理
@@ -1930,7 +1826,7 @@ class GraphDock(QDockWidget):
             if 'legends_label' in data and data['legends_label']:
                 try:
                     legends_label = data['legends_label']
-                except Exception as e:
+                except Exception:
                     legends_label = []
 
             # 凡例の色の処理
@@ -1938,7 +1834,7 @@ class GraphDock(QDockWidget):
             if 'legends_color' in data and data['legends_color']:
                 try:
                     legends_color = data['legends_color']
-                except Exception as e:
+                except Exception:
                     legends_color = []
 
             self.plot_relation_bar(
@@ -1951,7 +1847,6 @@ class GraphDock(QDockWidget):
                 is_display_edgecolor=bool(is_display_edgecolor),
                 hatches=hatches,
                 is_percentage_display=bool(is_percentage_display),
-                scale_to_percentage=bool(scale_to_percentage),
                 x_label=x_label_list,
                 g_pos = g_pos,
                 text_box_label = data['text_box_label'],
@@ -2069,16 +1964,16 @@ class GraphDock(QDockWidget):
                          colors: list = None,
                          change_rates: list = None,
                          legends: list = None,
-                         bar_label_rotate = False,
-                         label_type = 'edge',
-                         label_format = '1',
-                         is_display_bar_label = True,
-                         is_display_edgecolor = False,
+                         bar_label_rotate=False,
+                         label_type='edge',
+                         label_format='1',
+                         is_display_bar_label=True,
+                         is_display_edgecolor=False,
                          hatches: list = None,
-                         is_percentage_display = False,
-                         scale_to_percentage = False,
-                         x_label = None,
-                         fixed_range_0_to_100 = False,
+                         is_percentage_display=False,
+                         scale_to_percentage=False,
+                         x_label=None,
+                         fixed_range_0_to_100=False,
                          y_axis_decimal_places='0'):
         """
         Stackedbarグラフをプロットします
@@ -2115,8 +2010,8 @@ class GraphDock(QDockWidget):
         :type is_percentage_display: bool
         :param scale_to_percentage: csvの数値をパーセントに変換するかどうか
         :type scale_to_percentage: bool
-        :param x_label:x軸のラベルのリスト。
-        :type x_label:list
+        :param x_label: x軸のラベルのリスト。
+        :type x_label: list
         :param fixed_range_0_to_100: y軸目盛を0-100に設定するかどうか
         :type fixed_range_0_to_100: bool
         :param y_axis_decimal_places: y軸目盛の小数点以下の桁数
@@ -2139,7 +2034,7 @@ class GraphDock(QDockWidget):
         valid_indices = []
         valid_x = []
 
-        for i in range(len(x)):
+        for i, x_val in enumerate(x):
             # 全ての系列でハイフン値でない場合のみ有効とする
             is_valid = True
             for y_col in y_columns:
@@ -2155,7 +2050,7 @@ class GraphDock(QDockWidget):
 
             if is_valid:
                 valid_indices.append(i)
-                valid_x.append(x[i])
+                valid_x.append(x_val)
 
         # 有効なデータがない場合は処理を終了
         if not valid_x:
@@ -2250,7 +2145,7 @@ class GraphDock(QDockWidget):
                             rate_float = float(rate)
                             # 現在の棒グラフと前の棒グラフの中間点にテキストを配置
                             x_pos = (valid_x[j - 1] + valid_x[j]) / 2
-                            y_pos = (y[i - 1] + y[i]) / 2
+                            y_pos = (y[j - 1] + y[j]) / 2
                             ax.text(
                                 x_pos,
                                 y_pos,
@@ -2303,14 +2198,13 @@ class GraphDock(QDockWidget):
                         colors: list = None,
                         change_rates: list = None,
                         legends: list = None,
-                        bar_label_rotate = False,
-                        label_type = 'edge',
-                        label_format = '1',
-                        is_display_bar_label = True,
-                        is_display_edgecolor = False,
+                        bar_label_rotate=False,
+                        label_type='edge',
+                        label_format='1',
+                        is_display_bar_label=True,
+                        is_display_edgecolor=False,
                         hatches: list = None,
-                        scale_to_percentage = False,
-                        fixed_range_0_to_100 = False,
+                        fixed_range_0_to_100=False,
                         y_axis_decimal_places='0'):
         """
         Seriesbarグラフをプロットします
@@ -2343,8 +2237,6 @@ class GraphDock(QDockWidget):
         :type is_display_edgecolor: bool
         :param hatches: ハッチパターンのリスト。
         :type hatches: list, optional
-        :param scale_to_percentage: csvの数値をパーセントに変換するかどうか
-        :type scale_to_percentage: bool
         :param fixed_range_0_to_100: y軸目盛を0-100に設定するかどうか
         :type fixed_range_0_to_100: bool
         :param y_axis_decimal_places: y軸目盛の小数点以下の桁数
@@ -2423,7 +2315,7 @@ class GraphDock(QDockWidget):
                             rate_float = float(rate)
                             # 現在のグループと前のグループの中間点にテキストを配置
                             x_pos = (x_array[j - 1] + x_array[j]) / 2
-                            y_pos = (y[i - 1] + y[i]) / 2
+                            y_pos = (y[j - 1] + y[j]) / 2
                             ax.text(
                                 x_pos,
                                 y_pos,
@@ -2437,7 +2329,7 @@ class GraphDock(QDockWidget):
                 pass
 
         formatter = FuncFormatter(decimal_format(y_axis_decimal_places,
-                                                 label_format))
+                                                 label_format=label_format))
         ax.yaxis.set_major_formatter(formatter)
         ax.set_xticks(x_array + width * (len(y_columns) - 1) / 2)
         ax.set_xticklabels(x)
@@ -2446,117 +2338,7 @@ class GraphDock(QDockWidget):
         min_value = df[y_columns].min().min()
 
         # グラフの余白を設定
-        self.set_y_axis_range_with_margin(ax, max_value, min_value, fixed_range_0_to_100)
-
-    def plot_percent_bar(self,
-                        ax, x, df, y_columns,
-                        add_line: bool = False,
-                        colors: list = None,
-                        change_rates: list = None,
-                        legends: list = None,
-                        _bar_label_rotate=False,
-                        is_display_bar_label=True,
-                        is_display_edgecolor = False,
-                        hatches: list = None,
-                        scale_to_percentage = False,
-                        fixed_range_0_to_100 = False,
-                        y_axis_decimal_places='0'):
-        """
-        Percentbarグラフをプロットします
-
-        :param ax: グラフを描画する軸。
-        :type ax: matplotlib.axes.Axes
-        :param x: x軸のラベル。
-        :type x: list
-        :param df: プロットするデータのDataFrame。
-        :type df: pandas.DataFrame
-        :param y_columns: y軸のカラム名リスト。
-        :type y_columns: list
-        :param add_line: グラフにラインを追加するかどうか（デフォルトはFalse）。
-        :type add_line: bool
-        :param colors: グラフのバーの色リスト。
-        :type colors: list, optional
-        :param change_rates: 変化率リスト。
-        :type change_rates: list, optional
-        :param legends: 各バーの凡例。
-        :type legends: list, optional
-        :param _bar_label_rotate: バーラベルの回転を行うかどうか（デフォルトはFalse）。
-        :type _bar_label_rotate: bool
-        :param is_display_bar_label: バーラベルを表示するかどうか（デフォルトはTrue）。
-        :type is_display_bar_label: bool
-        :param is_display_edgecolor: バーの縁の色を表示するかどうか（デフォルトはFalse）。
-        :type is_display_edgecolor: bool
-        :param hatches: ハッチパターンのリスト。
-        :type hatches: list, optional
-        :param scale_to_percentage: csvの数値をパーセントに変換するかどうか
-        :type scale_to_percentage: bool
-        :param fixed_range_0_to_100: y軸目盛を0-100に設定するかどうか
-        :type fixed_range_0_to_100: bool
-        :param y_axis_decimal_places: y軸目盛の小数点以下の桁数
-        :type y_axis_decimal_places: str
-        """
-        if colors is None:
-            colors = []
-        if change_rates is None:
-            change_rates = []
-        if legends is None:
-            legends = []
-        if hatches is None:
-            hatches = []
-
-        x_array = np.arange(len(x))
-        width = 0.45
-        for i, y_col in enumerate(y_columns):
-            y = df[y_col].astype(float)
-            y_full = np.full_like(x_array + i * width, 100)
-            # edgecolorの設定
-            edgecolor = 'gray' if is_display_edgecolor else 'none'
-            # ハッチパターンの設定
-            hatch = hatches[i] if i < len(hatches) else None
-
-            ax.bar(
-                x_array + i * width,
-                y_full,
-                color='gray',
-                width=width,
-                alpha=0.5,
-                edgecolor=edgecolor
-            )
-            g = ax.bar(
-                x_array + i * width,
-                y,
-                width,
-                color=colors[i],
-                label=legends[i],
-                edgecolor=edgecolor,
-                linewidth=0.8,
-                hatch=hatch
-            )
-            if is_display_bar_label:
-                ax.bar_label(g, label_type='center', padding=2, fmt='%d%%', fontsize=10)
-            if add_line:
-                _ = self.add_dashed_line(ax, g)
-        if len(change_rates) > 0:
-            for i, rate in enumerate(change_rates):
-                if rate is not None and rate != "" and i > 0:  # 最初の要素はスキップ
-                    try:
-                        rate_float = float(rate)
-                        # 現在の棒グラフと前の棒グラフの中間点にテキストを配置
-                        x_pos = (x_array[i - 1] + x_array[i]) / 2
-                        ax.text(
-                            x_pos,
-                            102,
-                            f'{rate_float:+.1f}',
-                            ha='center', va='bottom',
-                            fontsize=10
-                        )
-                    except ValueError:
-                        pass
-        ax.set_xticks(x_array + width * (len(y_columns) - 1) / 2)
-        ax.set_xticklabels(x)
-        ax.set_ylabel(', '.join(y_columns) + '%')
-        limit = 120
-        ax.set_ylim(top=limit)
+        self.set_y_axis_range_with_margin(ax, min_value, max_value, fixed_range_0_to_100)
 
     def plot_years_bar(self, ax, df, data, colors,
                        label_type='edge',
@@ -2719,7 +2501,7 @@ class GraphDock(QDockWidget):
                             hatches: list = None,
                             is_percentage_display=False,
                             scale_to_percentage=False,
-                            fixed_range_0_to_100 = False,
+                            fixed_range_0_to_100=False,
                             y_axis_decimal_places='0'):
         """
         SingleYearBarグラフをプロットします（特定年次のデータのみ表示）
@@ -2766,33 +2548,17 @@ class GraphDock(QDockWidget):
         data_year = None
         data_values = []
 
-        print(f"Debug: SingleYearBar - x_columns={x_columns}")
-        print(f"Debug: SingleYearBar - year_columns={year_columns}")
-        print(f"Debug: SingleYearBar - df.columns={list(df.columns)}")
-        print(f"Debug: SingleYearBar - df shape={df.shape}")
-
         for year_col in year_columns:
-            print(f"Debug: SingleYearBar - checking year_col={year_col}")
             unique_years = df[year_col].unique()
-            print(f"Debug: SingleYearBar - unique_years={unique_years}")
 
             for year in unique_years:
-                print(f"Debug: SingleYearBar - checking year={year}")
                 year_data = df[df[year_col] == year]
-                print(f"Debug: SingleYearBar - year_data shape={year_data.shape}")
 
                 if not year_data.empty:
                     row_data = year_data[x_columns].iloc[0].tolist()
-                    print(f"Debug: SingleYearBar - row_data={row_data}")
 
                     # データがない（－や空文字）でない行を探す
                     valid_data = [str(val).strip() not in ["", "－", "-", "―", "nan"] and pd.notna(val) for val in row_data]
-                    print(f"Debug: SingleYearBar - valid_data={valid_data}")
-
-                    if any(valid_data):
-                        print(f"Debug: SingleYearBar - Valid data found for year {year}")
-                    else:
-                        print(f"Debug: SingleYearBar - No valid data for year {year}, continuing to next year")
 
                     if any(valid_data):
                         data_year = year
@@ -2804,12 +2570,9 @@ class GraphDock(QDockWidget):
                         # scale_to_percentageがtrueの場合、実数も100倍
                         if scale_to_percentage:
                             data_values = [v * 100 for v in data_values]
-                        print(f"Debug: SingleYearBar - found data_year={data_year}, data_values={data_values}")
                         break
             if data_year:
                 break
-
-        print(f"Debug: SingleYearBar - final data_year={data_year}, data_values={data_values}")
 
         if not data_year or not data_values:
             # データがない場合は空のグラフ
@@ -2818,7 +2581,6 @@ class GraphDock(QDockWidget):
 
         # 色の調整：指定カラムが2つなら後半2つ、3つなら全色使用
         num_columns = len(x_columns)
-        print(f"Debug: SingleYearBar - num_columns={num_columns}, original colors={colors}")
 
         if num_columns == 2:
             # 後半2つの色を使用
@@ -2834,9 +2596,6 @@ class GraphDock(QDockWidget):
         while len(selected_colors) < num_columns:
             selected_colors.extend(selected_colors)
         selected_colors = selected_colors[:num_columns]
-
-        print(f"Debug: SingleYearBar - selected_colors={selected_colors}")
-        print(f"Debug: SingleYearBar - data_values={data_values}")
 
         # 凡例の設定
         legends = data.get('legends', [])
@@ -2914,60 +2673,35 @@ class GraphDock(QDockWidget):
                     )
 
         # addlineの処理
-        line_y_positions = []
         if add_line:
             # barsをフラットなリストに変換
             flat_bars = [bar[0] for bar in bars]
-            line_y_positions = self.add_dashed_line(ax, flat_bars)
+            self.add_dashed_line(ax, flat_bars)
 
         # change_ratesの表示
-        print(f"Debug: SingleYearBar - change_rates={change_rates}")
-        print(f"Debug: SingleYearBar - data_year={data_year}")
 
         if change_rates and len(change_rates) > 0:
-            print(f"Debug: SingleYearBar - change_rates processing started")
             try:
                 # CSVからchange_ratesデータを取得
                 change_rate_columns = []
-                print(f"Debug: SingleYearBar - change_rates[0] type: {type(change_rates[0])}")
-                print(f"Debug: SingleYearBar - change_rates[0] content: {change_rates[0]}")
 
                 # change_ratesが既に値のリストの場合（[['－', '-6.2']]のような形式）
                 if isinstance(change_rates[0], list):
-                    print(f"Debug: SingleYearBar - change_rates[0] is list, processing as values")
                     change_rate_columns = change_rates[0]
-                    print(f"Debug: SingleYearBar - extracted change_rate_columns: {change_rate_columns}")
                 elif isinstance(change_rates[0], str):
-                    print(f"Debug: SingleYearBar - change_rates[0] is string: {change_rates[0]}")
                     # change_rates[0]がカラム名の場合、CSVから値を取得
                     change_rate_column = change_rates[0]
-                    print(f"Debug: SingleYearBar - looking for column: {change_rate_column}")
-                    print(f"Debug: SingleYearBar - available columns: {list(df.columns)}")
 
                     if change_rate_column in df.columns:
-                        print(f"Debug: SingleYearBar - found change_rate_column in df")
                         # データがある年のchange_ratesを取得
                         if data_year is not None:
-                            print(f"Debug: SingleYearBar - filtering by year: {data_year}")
                             year_row = df[df['year'] == data_year]
-                            print(f"Debug: SingleYearBar - year_row shape: {year_row.shape}")
 
                             if not year_row.empty:
                                 rate_value = year_row[change_rate_column].iloc[0]
-                                print(f"Debug: SingleYearBar - raw rate_value: {rate_value}")
-                                print(f"Debug: SingleYearBar - rate_value type: {type(rate_value)}")
 
                                 if pd.notna(rate_value) and str(rate_value).strip() not in ["", "－", "-", "―"]:
                                     change_rate_columns = [rate_value]
-                                    print(f"Debug: SingleYearBar - valid rate found: {change_rate_columns}")
-                                else:
-                                    print(f"Debug: SingleYearBar - rate_value is invalid")
-                            else:
-                                print(f"Debug: SingleYearBar - no data for year {data_year}")
-                        else:
-                            print(f"Debug: SingleYearBar - data_year is None")
-                    else:
-                        print(f"Debug: SingleYearBar - change_rate_column not found in df")
                 else:
                     # その他の場合
                     change_rate_columns = change_rates[0] if is_1d_list(change_rates) else change_rates
@@ -2979,14 +2713,13 @@ class GraphDock(QDockWidget):
                     if i < len(x_labels) and rate is not None and str(rate).strip() not in ["", "－", "-", "―"]:  # 最初の要素はスキップ
                         try:
                             rate_float = float(rate)
-                            print(f"rate_float:{rate_float}")
                             # scale_to_percentageがtrueの場合、実数も100倍
                             if scale_to_percentage:
                                 rate_float *= 100
                             # 現在の棒グラフと前の棒グラフの中間点にテキストを配置
                             x_pos = (x[i - 1] + x[i]) / 2
                             y_pos = (data_values[i - 1] + data_values[i]) / 2
-                            
+
                             ax.text(
                                 x_pos,
                                 y_pos,
@@ -3022,15 +2755,15 @@ class GraphDock(QDockWidget):
                             colors: list = None,
                             change_rates: list = None,
                             legends: list = None,
-                            bar_label_rotate = False,
-                            label_type = 'edge',
-                            label_format = '1',
-                            is_display_bar_label = True,
-                            is_display_edgecolor = False,
+                            bar_label_rotate=False,
+                            label_type='edge',
+                            label_format='1',
+                            is_display_bar_label=True,
+                            is_display_edgecolor=False,
                             hatches: list = None,
-                            is_percentage_display = False,
-                            scale_to_percentage = False,
-                            fixed_range_0_to_100 = False,
+                            is_percentage_display=False,
+                            scale_to_percentage=False,
+                            fixed_range_0_to_100=False,
                             y_axis_decimal_places='0',
                             g_pos: list = None):
         """
@@ -3098,7 +2831,7 @@ class GraphDock(QDockWidget):
         valid_x = []
         valid_y = []
 
-        for i in range(len(x)):
+        for i, x_val in enumerate(x):
             y_value = df[y_column].iloc[i]
             # ハイフン値をチェック（文字列として"―"またはpd.isna）
             if pd.isna(y_value) or str(y_value).strip() == "―" or str(y_value).strip() == "":
@@ -3109,7 +2842,7 @@ class GraphDock(QDockWidget):
                 if scale_to_percentage:
                     float_value *= 100
                 valid_indices.append(i)
-                valid_x.append(x[i])
+                valid_x.append(x_val)
                 valid_y.append(float_value)
             except (ValueError, TypeError):
                 continue  # 数値変換できない値もスキップ
@@ -3265,15 +2998,14 @@ class GraphDock(QDockWidget):
                             colors: list = None,
                             change_rates: list = None,
                             legends: list = None,
-                            bar_label_rotate = False,
-                            label_type = 'edge',
-                            label_format = '1',
-                            is_display_bar_label = True,
-                            is_display_edgecolor = False,
+                            bar_label_rotate=False,
+                            label_type='edge',
+                            label_format='1',
+                            is_display_bar_label=True,
+                            is_display_edgecolor=False,
                             hatches: list = None,
-                            is_percentage_display = False,
-                            scale_to_percentage = False,
-                            fixed_range_0_to_100 = False,
+                            is_percentage_display=False,
+                            fixed_range_0_to_100=False,
                             y_axis_decimal_places='0'):
         """
         重ね合わせバーグラフをプロットします（積み上げではなく、複数のバーを重ねて表示し、値が低い方を前面に配置）
@@ -3308,8 +3040,6 @@ class GraphDock(QDockWidget):
         :type hatches: list, optional
         :param is_percentage_display: パーセント表示するかどうか
         :type is_percentage_display: bool
-        :param scale_to_percentage: csvの数値をパーセントに変換するかどうか
-        :type scale_to_percentage: bool
         :param fixed_range_0_to_100: y軸目盛を0-100に設定するかどうか
         :type fixed_range_0_to_100: bool
         :param y_axis_decimal_places: y軸目盛の小数点以下の桁数
@@ -3432,7 +3162,7 @@ class GraphDock(QDockWidget):
                             rate_float = float(rate)
                             # 現在の棒グラフと前の棒グラフの中間点にテキストを配置
                             x_pos = (x[j - 1] + x[j]) / 2
-                            y_pos = (y[i - 1] + y[i]) / 2
+                            y_pos = (y[j - 1] + y[j]) / 2
                             ax.text(
                                 x_pos,
                                 y_pos,
@@ -3467,22 +3197,21 @@ class GraphDock(QDockWidget):
                         colors: list = None,
                         change_rates: list = None,
                         legends: list = None,
-                        bar_label_rotate = False,
-                        label_type = 'edge',
-                        label_format = '1',
-                        is_display_bar_label = True,
-                        is_display_edgecolor = False,
+                        bar_label_rotate=False,
+                        label_type='edge',
+                        label_format='1',
+                        is_display_bar_label=True,
+                        is_display_edgecolor=False,
                         hatches: list = None,
-                        is_percentage_display = False,
-                        scale_to_percentage = False,
-                        x_label = None,
+                        is_percentage_display=False,
+                        x_label=None,
                         g_pos: list = None,
-                        text_box_label = None,
-                        text_box_color = None,
-                        g_label = None,
-                        legends_label = None,
-                        legends_color = None,
-                        fixed_range_0_to_100 = False,
+                        text_box_label=None,
+                        text_box_color=None,
+                        g_label=None,
+                        legends_label=None,
+                        legends_color=None,
+                        fixed_range_0_to_100=False,
                         y_axis_decimal_places='0'):
         """
         RelationBarグラフをプロットします
@@ -3515,8 +3244,6 @@ class GraphDock(QDockWidget):
         :type hatches: list, optional
         :param is_percentage_display: パーセンテージを表示するかどうか（デフォルトはFalse）。
         :type is_percentage_display: bool
-        :param scale_to_percentage: csvの数値をパーセントに変換するかどうか
-        :type scale_to_percentage: bool
         :param x_label: x軸のラベルのリスト。
         :type x_label: list
         :param g_pos: グラフを表示するx軸の位置リスト。
@@ -3691,7 +3418,7 @@ class GraphDock(QDockWidget):
                         rate_float = float(rate)
                         # 現在の棒グラフと前の棒グラフの中間点にテキストを配置
                         x_pos = (g_pos[j - 1] + g_pos[j]) / 2
-                        y_pos = (max_group_value[i - 1] + max_group_value[i]) / 2
+                        y_pos = (max_group_value[j - 1] + max_group_value[j]) / 2
                         ax.text(
                             x_pos,
                             y_pos,
@@ -3793,7 +3520,6 @@ class GraphDock(QDockWidget):
             - 全て負の値の場合：minの15%を下側余白、上側に少しの余白
             - 正負混在の場合：それぞれに15%の余白を追加
         """
-        print(f"max_value, min_value:{max_value, min_value}")
 
         # Y軸の範囲を設定
         if fixed_range_0_to_100:
@@ -3807,20 +3533,17 @@ class GraphDock(QDockWidget):
             if min_value > 0:
                 # 全て正の値：maxの15%を上側余白として追加
                 margin = max_value * 0.15
-                print(f"全て正の値：margin:{margin}")
                 ax.set_ylim(top=max_value + margin)
             elif max_value < 0:
                 # 全て負の値：minの15%を下側余白、上側に少しの余白
                 margin = abs(min_value) * 0.15
                 top_margin = abs(min_value) * 0.05
-                print(f"全て負の値：margin:{margin}")
                 ax.set_ylim(bottom=min_value - margin, top=top_margin)
             else:
                 # 正負混在：それぞれに15%の余白を追加
                 # max_value, min_valueが小さい場合、最小余白を保証
                 top_margin = max(max_value * 0.15, min_margin)
                 bottom_margin = max(abs(min_value) * 0.15, min_margin)
-                print(f"正負混在：top_margin:{top_margin}, bottom_margin:{bottom_margin}")
                 ax.set_ylim(bottom=min_value - bottom_margin, top=max_value + top_margin)
 
     def _prepare_yearsbar_colors(self, df, data, original_colors):
@@ -3845,7 +3568,6 @@ class GraphDock(QDockWidget):
                     break
 
             if year_column is None:
-                print(f"Debug: Yearsbar 'Year'カラムがDataFrameに存在しません")
                 return original_colors
 
             # x軸のカラムデータを取得
@@ -3870,11 +3592,8 @@ class GraphDock(QDockWidget):
 
             num_years = len(years_data)
 
-        except Exception as e:
-            print(f"Debug: Yearsbar年数の取得でエラー: {e}")
+        except Exception:
             return original_colors
-
-        print(f"Debug: Yearsbar年数={num_years}, 元の色={original_colors}")
 
         # GraphColorConfigの色を取得
         if hasattr(self, 'color_manager') and self.color_manager and self.color_manager.color_config:
@@ -3908,10 +3627,8 @@ class GraphDock(QDockWidget):
                 if custom_colors:
                     # グラフ本数ルールを適用
                     result_colors = self._get_colors_by_graph_count(custom_colors, num_years)
-                    print(f"Debug: Yearsbar GraphColorConfig適用 item_val={item_val}, 結果={result_colors}")
                     return result_colors
 
-        print(f"Debug: Yearsbar GraphColorConfig未適用, 元の色を使用={original_colors}")
         return original_colors
 
     def _get_colors_by_graph_count(self, custom_colors, graph_count):
@@ -3932,21 +3649,11 @@ class GraphDock(QDockWidget):
             for i in range(graph_count):
                 color_index = (i + 1) % len(custom_colors)  # インデックス1から開始
                 result_colors.append(custom_colors[color_index])
-            print(f"Debug: 2本グラフ - 1つ目をスキップ: {result_colors}")
-
-        elif graph_count == 3:
-            # 3本の場合：そのまま1つ目・2つ目・3つ目の色を使用
-            for i in range(graph_count):
-                color_index = i % len(custom_colors)
-                result_colors.append(custom_colors[color_index])
-            print(f"Debug: 3本グラフ - そのまま適用: {result_colors}")
-
         else:
             # その他の本数の場合：通常の循環処理
             for i in range(graph_count):
                 color_index = i % len(custom_colors)
                 result_colors.append(custom_colors[color_index])
-            print(f"Debug: {graph_count}本グラフ - 通常処理: {result_colors}")
 
         return result_colors
 
@@ -4046,58 +3753,6 @@ class GraphDock(QDockWidget):
             print(f"Error processing dictionary values: {e}")
             return 0
 
-    def check_non_numeric_values(self, values):
-        """
-        リスト内の非数値の値をチェックする関数
-
-        :param values: チェックする値のリスト。
-        :type values: list
-
-        :returns: リストに非数値が含まれている場合はTrue、そうでなければFalse。
-        :rtype: bool
-        """
-        for value in values:
-            if not isinstance(value, (int, float)):
-                return True
-        return False
-
-    def add_solid_line(self, ax, bars, y_bases=None):
-        """
-        棒グラフに実線を追加する関数
-
-        :param ax: グラフを描画する軸。
-        :type ax: matplotlib.axes.Axes
-        :param bars: 実線を追加するバーのリスト。
-        :type bars: list
-        :param y_bases: 実線のy座標の基準（省略可能）。
-        :type y_bases: list, optional
-
-        :returns: 実線のy座標リスト。
-        :rtype: list
-        """
-        if y_bases is None:
-            y_bases = []
-        return_list = []
-        y2 = 0
-        if len(y_bases) == 0:
-            y_bases = [0 for i in range(len(bars))]
-        for i in range(len(bars) - 1):
-            current_bar = bars[i]
-            next_bar = bars[i + 1]
-
-            x1 = current_bar.get_x() + current_bar.get_width()
-            y1 = y_bases[i] + current_bar.get_height()
-            x2 = next_bar.get_x()
-            y2 = y_bases[i + 1] + next_bar.get_height()
-            ax.plot(
-                [x1, x2], [y1, y2], color='grey', linestyle='-', linewidth=0.5
-            )
-
-            return_list.append(y1)
-        return_list.append(y2)
-
-        return return_list
-
     def add_dashed_line(self, ax, bars, y_bases=None):
         """
         棒グラフに破線を追加する関数
@@ -4132,7 +3787,7 @@ class GraphDock(QDockWidget):
         return_list.append(y2)
 
         return return_list
-    
+
     def add_multiple_dashed_line(self, ax, bars):
         """
         積み上げグラフ(RelationBar)に破線を追加する関数
@@ -4146,7 +3801,7 @@ class GraphDock(QDockWidget):
         :rtype: list
         """
         return_list = []
-        
+
         group_num = len(bars)
         stuck_num = len(bars[0])
 
@@ -4221,29 +3876,6 @@ class GraphDock(QDockWidget):
 
                 canvas.draw()
 
-    def _get_default_canvas_size(self, canvas, viewport_width):
-        """従来のキャンバスサイズ計算ロジック"""
-        min_width = canvas.minimumWidth()
-        min_height = canvas.minimumHeight()
-
-        if min_width > viewport_width:
-            canvas_width = min_width
-            canvas_height = min_height
-        else:
-            canvas_width = viewport_width
-            canvas_height = int(viewport_width * 3 / 4)
-
-        return canvas_width, canvas_height
-
-    def _parse_fixed_size(self, size_value):
-        """XMLサイズ値を整数に変換"""
-        if not size_value or size_value == '':
-            return None
-        try:
-            return int(str(size_value).strip()) if size_value else None
-        except (ValueError, TypeError):
-            return None
-
     def _adjust_legends_position(self, canvas):
         """凡例の表示位置を調節する関数"""
         figure = canvas.figure
@@ -4276,8 +3908,6 @@ class GraphDock(QDockWidget):
                 legend_y = -legend_position_below_axes / ax_bbox.height
                 legend.set_bbox_to_anchor((0.5, legend_y),
                                         transform=ax.transAxes)
-            else:
-                print("DEBUG: bbox not found")
 
     @staticmethod
     def parse_hatch(hatch: str) -> str | None:
@@ -4348,13 +3978,10 @@ class GraphDock(QDockWidget):
                         )
 
                         # 横線を描画
-                        ax.hlines(y_value, line_x_min, line_x_max, 
+                        ax.hlines(y_value, line_x_min, line_x_max,
                                 colors=color, linestyles='dotted', linewidths=2)
-
         except Exception as e:
             print(f"Error adding horizontal lines: {e}")
-            import traceback
-            traceback.print_exc()
 
     def _get_x_data_points_count(self, ax, data):
         """
@@ -4409,7 +4036,7 @@ class GraphDock(QDockWidget):
             count = int(x_max - x_min) if x_max > x_min else 1
             return count
 
-        except Exception as e:
+        except Exception:
             return 1
 
     def _calculate_hline_range(self, line_index, hline_ranges, x_min, x_max, x_data_points):
@@ -4460,10 +4087,10 @@ class GraphDock(QDockWidget):
 
             return line_x_min, line_x_max
 
-        except (ValueError, IndexError) as e:
+        except (ValueError, IndexError):
             return x_min, x_max
 
-    def add_text_box_with_line(self, ax, bar, text, layout = None):
+    def add_text_box_with_line(self, ax, bar, text, layout=None):
         """
         バーからテキストボックスまでのラインとテキストボックスを追加
 
@@ -4515,18 +4142,16 @@ class GraphDock(QDockWidget):
 
         ax.hlines(y=bar['y'], xmin=bar['x'], xmax=line_end_x, **layout)
 
-    def add_legends_with_line (self, ax, text, color):
+    def add_legends_with_line(self, ax, text, color):
         """
         RelationBarの凡例表示
 
         :param ax: matplotlib axes
         :type ax: matplotlib.axes.Axes
-        :param height: RelationBarの最大積み上げ値
-        :type height: int
         :param text: 凡例に表示するテキストのリスト
         :type text: list
-        :param layout: 凡例に表示するラインの色リスト
-        :type layout: list
+        :param color: 凡例に表示するラインの色リスト
+        :type color: list
         """
         # 凡例の数を取得
         legend_num = len(text)
@@ -4550,10 +4175,10 @@ class GraphDock(QDockWidget):
             ax.plot(
                 [],
                 [],
-                color = color[i],
+                color=color[i],
                 linestyle=":",
                 linewidth=2,
-                label = text[i]
+                label=text[i]
             )
 
         # 凡例の表示位置を取得
@@ -4567,11 +4192,11 @@ class GraphDock(QDockWidget):
 
         # 凡例の表示
         ax.legend(
-            loc = 'upper center',
+            loc='upper center',
             bbox_to_anchor=(legend_x, -0.1),
-            fontsize = 10,
-            ncol = 2,
-            frameon = True,
+            fontsize=10,
+            ncol=2,
+            frameon=True,
             handlelength=1.3, # 凡例のライン幅
             handletextpad=0.1, # 凡例のラインとラベルの間隔
             borderpad=0.5, # 凡例枠の余白
@@ -4625,15 +4250,11 @@ class MainGraphDock(GraphDock):
         :param year: 更新する年
         :type year: str
         """
-        print(f"Debug: MainGraphDock - starting update_plots_and_layer_coloring")
         self.update_plots(data_item)
-        print(f"Debug: MainGraphDock - update_plots completed, starting layer coloring")
         try:
             self.layer_coloring.coloring(data_item, year)
-            print(f"Debug: MainGraphDock - layer coloring completed")
-        except Exception as e:
-            print(f"Debug: MainGraphDock - layer coloring failed: {e}")
-        print(f"Debug: MainGraphDock - update_plots_and_layer_coloring completed")
+        except Exception:
+            pass
 
     def adjust_figure_sizes(self):
         """グラフのサイズを調整します（メイングラフ用）"""
@@ -4643,7 +4264,6 @@ class MainGraphDock(GraphDock):
     def tr(self, message):
         """翻訳機能"""
         return QCoreApplication.translate('MainGraphDock', message)
-
 
 class RevisedAreaGraphDock(GraphDock):
     """
@@ -4679,19 +4299,10 @@ class RevisedAreaGraphDock(GraphDock):
         )
         # 修正区域用の設定を読み込み
         self.revised_area_datasets = {}
-        print(f"Debug: RevisedAreaGraphDock - Checking RevisedAreaVisualizationConfig.xml at: {_revised_area_config_file}")
         if os.path.exists(_revised_area_config_file):
-            print(f"Debug: RevisedAreaGraphDock - RevisedAreaVisualizationConfig.xml exists, loading...")
             _, _, self.revised_area_datasets = load_config(
                 self.datalist_file, _revised_area_config_file, None
             )
-            print(f"Debug: RevisedAreaGraphDock - Loaded revised_area_datasets keys: {list(self.revised_area_datasets.keys())}")
-            print(f"Debug: RevisedAreaGraphDock - Key types in revised_area_datasets: {[(k, type(k)) for k in self.revised_area_datasets.keys()]}")
-            for key, value in self.revised_area_datasets.items():
-                data_count = len(value.get('data', [])) if isinstance(value, dict) else len(value)
-                print(f"Debug: RevisedAreaGraphDock - revised_area_datasets[{key}] = {type(value)} with {data_count} items")
-        else:
-            print(f"Debug: RevisedAreaGraphDock - RevisedAreaVisualizationConfig.xml does not exist, will use fallback")
 
         # GraphColorManagerを初期化
         self.color_manager = GraphColorManager(_color_file, True)
@@ -4712,9 +4323,6 @@ class RevisedAreaGraphDock(GraphDock):
         datasets_to_use = None
         target_layout = self.scroll_layout
 
-        print(f"Debug: RevisedArea - data_item={data_item} (type: {type(data_item)})")
-        print(f"Debug: RevisedArea - revised_area_datasets keys={list(self.revised_area_datasets.keys()) if hasattr(self, 'revised_area_datasets') else 'None'}")
-
         # キーの型変換を試行
         key_to_check = data_item
         if hasattr(self, 'revised_area_datasets') and self.revised_area_datasets:
@@ -4723,15 +4331,11 @@ class RevisedAreaGraphDock(GraphDock):
                 int_key = int(data_item)
                 if int_key in self.revised_area_datasets:
                     key_to_check = int_key
-                    print(f"Debug: revision area - found integer key {int_key}")
             # data_itemが数値の場合、文字列キーとしても確認
             elif isinstance(data_item, int):
                 str_key = str(data_item)
                 if str_key in self.revised_area_datasets:
                     key_to_check = str_key
-                    print(f"Debug: revision area - found string key {str_key}")
-
-        print(f"Debug: revision area - using key_to_check={key_to_check}")
 
         # current_item_valを設定（GraphColorManager用）
         try:
@@ -4742,18 +4346,15 @@ class RevisedAreaGraphDock(GraphDock):
         # 修正区域用の設定が存在し、かつ該当データがある場合
         if hasattr(self, 'revised_area_datasets') and self.revised_area_datasets and key_to_check in self.revised_area_datasets:
             datasets_to_use = self.revised_area_datasets
-            print(f"Debug: revision area - using revised_area_datasets")
         # フォールバック：メイン設定からダミーデータセットを使用
         elif data_item:
             # 修正区域用のグラフは空のプロットを作成
-            print(f"Debug: revision area - no specific dataset, creating empty plot")
             self.create_no_data_plot_for_revision_area()
             self.adjust_figure_sizes()
             return
 
         if datasets_to_use:
             dataset = datasets_to_use[key_to_check]
-            print(f"Debug: revision area - found dataset for key {key_to_check}")
             # 新しい形式（辞書）か旧形式（リスト）かを判定
             if isinstance(dataset, dict):
                 datalist = dataset.get('data', [])

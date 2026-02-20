@@ -104,6 +104,12 @@ class PopulationDataGenerator:
             if self.check_canceled():
                 return  # キャンセルチェック
 
+            # 集計対象区域内の人口データを追加
+            layer = self.add_target_area_population(layer, zones_layer, population_data)
+
+            if self.check_canceled():
+                return  # キャンセルチェック
+
             # 人口目標設定データ取り込み
             # population_target_setting.csv を読み込む
             csv_path = os.path.join(
@@ -159,6 +165,12 @@ class PopulationDataGenerator:
             future_population_layer = self.load_future_population(zones_layer)
             # 将来推定人口データをメッシュデータに付与
             self.add_future_population_data(layer, future_population_layer)
+
+            if self.check_canceled():
+                return  # キャンセルチェック
+
+            # 集計対象区域内の将来推計人口データを追加
+            self.add_target_area_future_population(layer, zones_layer)
 
             # 追加属性（人口増減、人口増減の変化、将来の人口増減）
             self.calculate_population_metrics(layer)
@@ -379,6 +391,373 @@ class PopulationDataGenerator:
 
         return layer
 
+    def add_target_area_population(self, layer, zones_layer, population_data):
+        """集計対象区域(is_target=1)内の人口データを計算してmeshesレイヤに追加する"""
+        try:
+            from qgis.core import (
+                QgsCoordinateTransform,
+                QgsProject,
+                QgsCoordinateReferenceSystem,
+                QgsGeometry,
+            )
+
+            provider = layer.dataProvider()
+
+            # 年度リストを取得
+            years = [year_data['year'] for year_data in population_data]
+
+            # 各年度に対応するフィールドを追加
+            existing_field_names = [field.name() for field in layer.fields()]
+            for year in years:
+                field_name = f"{year}_target_area_population"
+                if field_name not in existing_field_names:
+                    provider.addAttributes(
+                        [QgsField(field_name, QVariant.Double)]
+                    )
+            layer.updateFields()
+
+            # is_target=1のゾーンのみを抽出（int/str両対応）
+            target_zone_ids = []
+            for f in zones_layer.getFeatures():
+                is_target_val = f['is_target']
+                # 数値の1、文字列の"1"、Trueのいずれかに対応
+                if is_target_val == 1 or is_target_val == "1" or is_target_val is True:
+                    target_zone_ids.append(f.id())
+
+            if not target_zone_ids:
+                QgsMessageLog.logMessage(
+                    self.tr("No target zones (is_target=1) found. Skipping target area population calculation."),
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                return layer
+
+            QgsMessageLog.logMessage(
+                self.tr("Calculating target area population for %1 target zones...").replace("%1", str(len(target_zone_ids))),
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+
+            # Processing APIを使ってゾーンをメッシュと同じCRSに再投影
+            mesh_crs = layer.crs()
+
+            # is_target=1のゾーンのみを抽出してメモリレイヤを作成
+            target_zones_layer = processing.run(
+                "native:extractbyexpression",
+                {
+                    'INPUT': zones_layer,
+                    'EXPRESSION': '"is_target" = 1 OR "is_target" = \'1\'',
+                    'OUTPUT': 'memory:'
+                }
+            )['OUTPUT']
+
+            # ゾーンをメッシュと同じCRSに再投影
+            reprojected_zones = processing.run(
+                "native:reprojectlayer",
+                {
+                    'INPUT': target_zones_layer,
+                    'TARGET_CRS': mesh_crs,
+                    'OUTPUT': 'memory:'
+                }
+            )['OUTPUT']
+
+            # 再投影したゾーンを1つのジオメトリに結合
+            target_zone_geoms = []
+            for zone_feature in reprojected_zones.getFeatures():
+                target_zone_geoms.append(QgsGeometry(zone_feature.geometry()))
+
+            combined_target_geom = QgsGeometry.unaryUnion(target_zone_geoms)
+
+            # 面積計算用のCRSに変換（メッシュが地理座標系の場合）
+            if mesh_crs.isGeographic():
+                # 面積計算用にEPSG:6677（JGD2011 / Japan Plane Rectangular CS IX）を使用
+                area_crs = QgsCoordinateReferenceSystem("EPSG:6677")
+                transform_to_area = QgsCoordinateTransform(
+                    mesh_crs, area_crs, QgsProject.instance()
+                )
+                use_projection = True
+
+                # combined_target_geomを投影座標系に変換
+                combined_target_geom.transform(transform_to_area)
+            else:
+                use_projection = False
+                transform_to_area = None
+
+            # バッチ処理用の準備
+            attribute_changes = {}
+            processed_count = 0
+            total_features = layer.featureCount()
+
+            for feature in layer.getFeatures():
+                if self.check_canceled():
+                    return  # キャンセルチェック
+
+                mesh_geom = QgsGeometry(feature.geometry())
+
+                # 面積計算用に投影座標系に変換
+                if use_projection:
+                    mesh_geom.transform(transform_to_area)
+
+                # メッシュ全体の面積
+                mesh_area = mesh_geom.area()
+
+                if mesh_area <= 0:
+                    processed_count += 1
+                    continue
+
+                # 結合した対象ゾーンとの交差面積を計算
+                intersection_geom = mesh_geom.intersection(combined_target_geom)
+                intersection_area = intersection_geom.area() if intersection_geom and not intersection_geom.isEmpty() else 0
+
+                # 面積割合を計算
+                area_ratio = intersection_area / mesh_area if mesh_area > 0 else 0
+
+                # 各年度の target_area_population を計算
+                for year in years:
+                    population_field = f"{year}_population"
+                    target_field = f"{year}_target_area_population"
+
+                    population = feature[population_field]
+                    if population is not None and isinstance(population, (int, float)):
+                        target_area_population = population * area_ratio
+                    else:
+                        target_area_population = 0
+
+                    attribute_changes.setdefault(
+                        feature.id(), {}
+                    ).update(
+                        {
+                            layer.fields().indexFromName(target_field): round(target_area_population, 2)
+                        }
+                    )
+
+                processed_count += 1
+                if processed_count % 1000 == 0:
+                    QgsMessageLog.logMessage(
+                        self.tr("Target area population calculation: %1/%2 features processed...").replace("%1", str(processed_count)).replace("%2", str(total_features)),
+                        self.tr("Plugin"),
+                        Qgis.Info,
+                    )
+                    QApplication.processEvents()
+
+            # 一括でコミット
+            if attribute_changes:
+                layer.startEditing()
+                provider.changeAttributeValues(attribute_changes)
+                layer.commitChanges()
+
+                QgsMessageLog.logMessage(
+                    self.tr("Target area population calculation completed. Updated %1 features.").replace("%1", str(len(attribute_changes))),
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+            else:
+                QgsMessageLog.logMessage(
+                    self.tr("Warning: No features were updated with target area population data"),
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+
+            return layer
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred during target area population calculation: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
+
+    def add_target_area_future_population(self, layer, zones_layer):
+        """集計対象区域(is_target=1)内の将来推計人口データを計算してmeshesレイヤに追加する"""
+        try:
+            from qgis.core import (
+                QgsCoordinateTransform,
+                QgsProject,
+                QgsCoordinateReferenceSystem,
+                QgsGeometry,
+            )
+
+            provider = layer.dataProvider()
+
+            # future_yyyy_XXX 形式のフィールドを取得
+            future_field_pattern = re.compile(r'^future_\d{4}_\w+$')
+            future_fields = [
+                field.name() for field in layer.fields()
+                if future_field_pattern.match(field.name())
+            ]
+
+            if not future_fields:
+                QgsMessageLog.logMessage(
+                    self.tr("No future population fields found. Skipping target area calculation."),
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                return layer
+
+            # 各フィールドに対応するtarget_areaフィールドを追加
+            # future_2030_PTN -> future_2030_target_area_PTN
+            existing_field_names = [field.name() for field in layer.fields()]
+            target_area_field_map = {}
+            for field_name in future_fields:
+                target_field = re.sub(
+                    r'^(future_\d{4})_(\w+)$',
+                    r'\1_target_area_\2',
+                    field_name
+                )
+                target_area_field_map[field_name] = target_field
+                if target_field not in existing_field_names:
+                    provider.addAttributes(
+                        [QgsField(target_field, QVariant.Double)]
+                    )
+            layer.updateFields()
+
+            # is_target=1のゾーンのみを抽出（int/str両対応）
+            target_zone_ids = []
+            for f in zones_layer.getFeatures():
+                is_target_val = f['is_target']
+                if is_target_val == 1 or is_target_val == "1" or is_target_val is True:
+                    target_zone_ids.append(f.id())
+
+            if not target_zone_ids:
+                QgsMessageLog.logMessage(
+                    self.tr("No target zones (is_target=1) found. Skipping future target area population calculation."),
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+                return layer
+
+            QgsMessageLog.logMessage(
+                self.tr("Calculating future target area population for %1 target zones...").replace("%1", str(len(target_zone_ids))),
+                self.tr("Plugin"),
+                Qgis.Info,
+            )
+
+            # Processing APIを使ってゾーンをメッシュと同じCRSに再投影
+            mesh_crs = layer.crs()
+
+            # is_target=1のゾーンのみを抽出してメモリレイヤを作成
+            target_zones_layer = processing.run(
+                "native:extractbyexpression",
+                {
+                    'INPUT': zones_layer,
+                    'EXPRESSION': '"is_target" = 1 OR "is_target" = \'1\'',
+                    'OUTPUT': 'memory:'
+                }
+            )['OUTPUT']
+
+            # ゾーンをメッシュと同じCRSに再投影
+            reprojected_zones = processing.run(
+                "native:reprojectlayer",
+                {
+                    'INPUT': target_zones_layer,
+                    'TARGET_CRS': mesh_crs,
+                    'OUTPUT': 'memory:'
+                }
+            )['OUTPUT']
+
+            # 再投影したゾーンを1つのジオメトリに結合
+            target_zone_geoms = []
+            for zone_feature in reprojected_zones.getFeatures():
+                target_zone_geoms.append(QgsGeometry(zone_feature.geometry()))
+
+            combined_target_geom = QgsGeometry.unaryUnion(target_zone_geoms)
+
+            # 面積計算用のCRSに変換（メッシュが地理座標系の場合）
+            if mesh_crs.isGeographic():
+                area_crs = QgsCoordinateReferenceSystem("EPSG:6677")
+                transform_to_area = QgsCoordinateTransform(
+                    mesh_crs, area_crs, QgsProject.instance()
+                )
+                use_projection = True
+
+                combined_target_geom.transform(transform_to_area)
+            else:
+                use_projection = False
+                transform_to_area = None
+
+            # バッチ処理用の準備
+            attribute_changes = {}
+            processed_count = 0
+            total_features = layer.featureCount()
+
+            for feature in layer.getFeatures():
+                if self.check_canceled():
+                    return  # キャンセルチェック
+
+                mesh_geom = QgsGeometry(feature.geometry())
+
+                # 面積計算用に投影座標系に変換
+                if use_projection:
+                    mesh_geom.transform(transform_to_area)
+
+                # メッシュ全体の面積
+                mesh_area = mesh_geom.area()
+
+                if mesh_area <= 0:
+                    processed_count += 1
+                    continue
+
+                # 結合した対象ゾーンとの交差面積を計算
+                intersection_geom = mesh_geom.intersection(combined_target_geom)
+                intersection_area = intersection_geom.area() if intersection_geom and not intersection_geom.isEmpty() else 0
+
+                # 面積割合を計算
+                area_ratio = intersection_area / mesh_area if mesh_area > 0 else 0
+
+                # 各将来推計人口フィールドの target_area 値を計算
+                for field_name, target_field in target_area_field_map.items():
+                    value = feature[field_name]
+                    if value is not None and isinstance(value, (int, float)):
+                        target_area_value = value * area_ratio
+                    else:
+                        target_area_value = 0
+
+                    attribute_changes.setdefault(
+                        feature.id(), {}
+                    ).update(
+                        {
+                            layer.fields().indexFromName(target_field): round(target_area_value, 6)
+                        }
+                    )
+
+                processed_count += 1
+                if processed_count % 1000 == 0:
+                    QgsMessageLog.logMessage(
+                        self.tr("Future target area population calculation: %1/%2 features processed...").replace("%1", str(processed_count)).replace("%2", str(total_features)),
+                        self.tr("Plugin"),
+                        Qgis.Info,
+                    )
+                    QApplication.processEvents()
+
+            # 一括でコミット
+            if attribute_changes:
+                layer.startEditing()
+                provider.changeAttributeValues(attribute_changes)
+                layer.commitChanges()
+
+                QgsMessageLog.logMessage(
+                    self.tr("Future target area population calculation completed. Updated %1 features.").replace("%1", str(len(attribute_changes))),
+                    self.tr("Plugin"),
+                    Qgis.Info,
+                )
+            else:
+                QgsMessageLog.logMessage(
+                    self.tr("Warning: No features were updated with future target area population data"),
+                    self.tr("Plugin"),
+                    Qgis.Warning,
+                )
+
+            return layer
+
+        except Exception as e:
+            QgsMessageLog.logMessage(
+                self.tr("An error occurred during future target area population calculation: %1").replace("%1", str(e)),
+                self.tr("Plugin"),
+                Qgis.Critical,
+            )
+            raise e
+
     def join_layers(self, target_layer, join_layer, target_field, join_field):
         """レイヤ結合"""
         result = processing.run(
@@ -485,7 +864,7 @@ class PopulationDataGenerator:
         """将来推定人口データを250mメッシュレイヤに追加する"""
         try:
             provider = layer.dataProvider()
-            
+
             # メッシュIDをキーとした辞書を事前に作成
             # 500mメッシュ（前8桁）ごとにグループ化
             QgsMessageLog.logMessage(
@@ -495,20 +874,20 @@ class PopulationDataGenerator:
             )
             mesh_feature_dict = {}  # 250mメッシュIDをキーとする辞書
             mesh_500m_dict = {}  # 500mメッシュID（前8桁）をキーとする辞書
-            
+
             for feature in layer.getFeatures():
                 mesh_id = (
-                    str(feature["mesh1_id"]) + 
-                    str(feature["mesh2_id"]) + 
-                    str(feature["mesh3_id"]) + 
+                    str(feature["mesh1_id"]) +
+                    str(feature["mesh2_id"]) +
+                    str(feature["mesh3_id"]) +
                     str(feature["mesh4_id"])
                 )
-                
+
                 # 250mメッシュ辞書に追加
                 if mesh_id not in mesh_feature_dict:
                     mesh_feature_dict[mesh_id] = []
                 mesh_feature_dict[mesh_id].append(feature)
-                
+
                 # 250mメッシュ辞書に追加（前9桁をキーとして: mesh1~mesh4）
                 mesh_500m_id = mesh_id[:9]
                 if mesh_500m_id not in mesh_500m_dict:
@@ -579,7 +958,7 @@ class PopulationDataGenerator:
             matched_count = 0
             skipped_count = 0
             total_features = future_population_layer.featureCount()
-            
+
             QgsMessageLog.logMessage(
                 self.tr("Processing %1 future population features...").replace("%1", str(total_features)),
                 self.tr("Plugin"),
@@ -733,12 +1112,12 @@ class PopulationDataGenerator:
                 self.tr("Plugin"),
                 Qgis.Info,
             )
-            
+
             if attribute_changes:
                 layer.startEditing()
                 provider.changeAttributeValues(attribute_changes)
                 layer.commitChanges()
-                
+
                 msg = self.tr(
                     "Adding future estimated population data has been completed. Updated %1 features."
                 ).replace("%1", str(len(attribute_changes)))

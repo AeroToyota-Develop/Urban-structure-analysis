@@ -70,7 +70,7 @@ class LandUseMetricCalculator:
                 missing_layers.append("zones")
             if not change_maps_layer:
                 missing_layers.append("change_maps")
-                
+
             if missing_layers:
                 QgsMessageLog.logMessage(
                     self.tr("Missing layers: %1. Outputting empty result.")
@@ -134,7 +134,7 @@ class LandUseMetricCalculator:
             admin_constrained_change_maps = self.__extract_within_zones(
                 change_maps_layer, target_zones_layer
             )
-            
+
             # 工業専用地域を除外（land_use_areasがある場合）
             if land_use_areas_layer:
                 # 工業専用地域と重ならないchange_mapsを抽出
@@ -182,7 +182,7 @@ class LandUseMetricCalculator:
 
             # 新築指数、滅失指数、その他指数を計算
             # 居住誘導区域内外でのそれぞれの指数を算出
-            
+
             # 居住誘導区域内の変化度データを取得
             inside_rpa_change_maps = self.__extract_within_induction_areas(
                 filtered_change_maps, residential_area_layer
@@ -349,7 +349,7 @@ class LandUseMetricCalculator:
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             },
         )['OUTPUT']
-        
+
         # 工業専用地域と重ならないchange_mapsを抽出
         result = processing.run(
             "native:extractbylocation",
@@ -367,7 +367,7 @@ class LandUseMetricCalculator:
         try:
             if not land_use_meshes_layer:
                 return 0
-                
+
             # 都市計画区域がある場合はその範囲内、ない場合は全てのメッシュを対象とする
             if urban_plannings_layer:
                 # 都市計画区域内のメッシュを抽出
@@ -382,7 +382,7 @@ class LandUseMetricCalculator:
                 )['OUTPUT']
             else:
                 urban_meshes = land_use_meshes_layer
-            
+
             # 行政区域制約を適用
             admin_constrained_meshes = processing.run(
                 "native:extractbylocation",
@@ -393,7 +393,7 @@ class LandUseMetricCalculator:
                     'OUTPUT': 'TEMPORARY_OUTPUT',
                 },
             )['OUTPUT']
-            
+
             # 建物用地のメッシュを抽出（type=0700）
             residential_meshes = processing.run(
                 "native:extractbyexpression",
@@ -403,7 +403,7 @@ class LandUseMetricCalculator:
                     'OUTPUT': 'TEMPORARY_OUTPUT',
                 },
             )['OUTPUT']
-            
+
             return residential_meshes.featureCount()
         except Exception:
             return 0
@@ -451,10 +451,10 @@ class LandUseMetricCalculator:
         try:
             if residential_land_mesh_count == 0:
                 return ''
-                
+
             # 変化度別にメッシュ数をカウント
             change_degree_counts = {1: 0, 2: 0, 3: 0, 4: 0}
-            
+
             # index_typeに応じたフィールド名を決定
             if index_type == 'new_construction':
                 field_name = 'level'
@@ -462,7 +462,7 @@ class LandUseMetricCalculator:
                 field_name = 'demolition_degree'  # 滅失は滅失度フィールド
             else:  # other_construction
                 field_name = 'other_degree'  # その他はその他度フィールド
-                
+
             for feature in change_maps_layer.getFeatures():
                 try:
                     degree_value = feature[field_name]
@@ -475,12 +475,12 @@ class LandUseMetricCalculator:
                 except (KeyError, AttributeError):
                     # フィールドが存在しない場合はスキップ
                     continue
-            
+
             # 積算変化度を計算: (変化度1のメッシュ数×1) + (変化度2のメッシュ数×2) + ...
             cumulative_change = sum(
                 degree * count for degree, count in change_degree_counts.items()
             )
-            
+
             # 指数 = 積算変化度 / 都市計画区域内の宅地利用メッシュ数
             index = cumulative_change / residential_land_mesh_count if residential_land_mesh_count > 0 else 0
             return self.round_or_na(index, 2)
@@ -503,9 +503,9 @@ class LandUseMetricCalculator:
             field_name = 'demolition_degree'
         else:  # other_construction
             field_name = 'other_degree'
-            
+
         change_degree_counts = {1: 0, 2: 0, 3: 0, 4: 0}
-        
+
         try:
             for feature in change_maps_layer.getFeatures():
                 degree_value = feature[field_name]
@@ -518,7 +518,7 @@ class LandUseMetricCalculator:
         except (KeyError, AttributeError):
             # フィールドが存在しない場合は0を返す
             return 0
-        
+
         # 積算変化度を計算
         cumulative_change = sum(
             degree * count for degree, count in change_degree_counts.items()

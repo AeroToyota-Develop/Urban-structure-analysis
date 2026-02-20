@@ -45,7 +45,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
     """
     評価指標算出
     """
-    
+
     INPUT_FOLDER = 'INPUT_FOLDER'
     OUTPUT_FOLDER = 'OUTPUT_FOLDER'
     THRESHOLD_BUS = 'THRESHOLD_BUS'
@@ -54,26 +54,26 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
     IS_AFTER_CHANGE = 'IS_AFTER_CHANGE'
     INDUCTION_AREA_FOLDER = 'INDUCTION_AREA_FOLDER'
     BEFORE_OUTPUT_FOLDER = 'BEFORE_OUTPUT_FOLDER'
-    
+
     def tr(self, message):
         """翻訳用のメソッド"""
         return QCoreApplication.translate(self.__class__.__name__, message)
-    
+
     def createInstance(self):
         return MetricCalculationProcessing()
-    
+
     def name(self):
         return 'metric_calculation'
-    
+
     def displayName(self):
         return self.tr('評価指標算出')
-    
+
     def group(self):
         return self.tr('Plateau統計可視化')
-    
+
     def groupId(self):
         return 'plateau_statistics'
-    
+
     def shortHelpString(self):
         return self.tr('都市構造分析の評価指標を算出します')
 
@@ -87,14 +87,14 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
                 defaultValue=''
             )
         )
-        
+
         self.addParameter(
             QgsProcessingParameterFolderDestination(
                 self.OUTPUT_FOLDER,
                 self.tr('出力フォルダ')
             )
         )
-        
+
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.THRESHOLD_BUS,
@@ -102,7 +102,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
                 defaultValue=300
             )
         )
-        
+
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.THRESHOLD_RAILWAY,
@@ -110,7 +110,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
                 defaultValue=800
             )
         )
-        
+
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.THRESHOLD_SHELTER,
@@ -144,7 +144,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
                 optional=True
             )
         )
-    
+
     def processAlgorithm(self, parameters, context, feedback):
         """
         評価指標算出機能に含まれる各機能を順次実行します。
@@ -372,60 +372,60 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             # 居住誘導関連評価指標算出機能
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("居住誘導関連評価指標を算出中...")
-                calclator = ResidentialInductionMetricCalculator(
+                calculator = ResidentialInductionMetricCalculator(
                     output_folder, lambda: feedback.isCanceled(), gpkg_manager
                 )
-                calclator.calc()
+                calculator.calc()
             feedback.setProgress(55)
             QApplication.processEvents()
 
             # 都市機能誘導関連評価指標算出機能
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("都市機能誘導関連評価指標を算出中...")
-                calclator = UrbanFunctionInductionMetricCalculator(
+                calculator = UrbanFunctionInductionMetricCalculator(
                     output_folder, lambda: feedback.isCanceled(), gpkg_manager
                 )
-                calclator.calc()
+                calculator.calc()
             feedback.setProgress(65)
             QApplication.processEvents()
 
             # 防災関連評価指標算出機能
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("防災関連評価指標を算出中...")
-                calclator = DisasterPreventionMetricCalculator(
+                calculator = DisasterPreventionMetricCalculator(
                     output_folder, lambda: feedback.isCanceled(), gpkg_manager
                 )
-                calclator.calc()
+                calculator.calc()
             feedback.setProgress(75)
             QApplication.processEvents()
 
             # 公共交通関連評価指標算出機能
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("公共交通関連評価指標を算出中...")
-                calclator = PublicTransportMetricCalculator(
+                calculator = PublicTransportMetricCalculator(
                     output_folder, lambda: feedback.isCanceled(), gpkg_manager
                 )
-                calclator.calc()
+                calculator.calc()
             feedback.setProgress(85)
             QApplication.processEvents()
 
             # 土地利用関連評価指標算出機能
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("土地利用関連評価指標を算出中...")
-                calclator = LandUseMetricCalculator(
+                calculator = LandUseMetricCalculator(
                     output_folder, lambda: feedback.isCanceled(), gpkg_manager
                 )
-                calclator.calc()
+                calculator.calc()
             feedback.setProgress(95)
             QApplication.processEvents()
 
             # 財政関連評価指標算出機能
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("財政関連評価指標を算出中...")
-                calclator = FiscalMetricCalculator(
+                calculator = FiscalMetricCalculator(
                     input_folder, output_folder, lambda: feedback.isCanceled(), gpkg_manager
                 )
-                calclator.calc()
+                calculator.calc()
             feedback.setProgress(100)
             QApplication.processEvents()
 
@@ -612,7 +612,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             'road_networks': '道路ネットワーク',
             'shelter_buffers': '避難施設カバー圏域',
             'shelters': '避難施設',
-            'urbun_plannings': '都市計画区域',
+            'urban_plannings': '都市計画区域',
             'vacancies': '空き家',
             'zones': '行政区域',
             'did': '人口集中地区'
@@ -641,7 +641,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
 
             # レイヤパネルに追加するかどうかを判定
             # population_target_settingsレイヤは追加しない
-            show_in_panel = (layer_name != 'population_target_settings')
+            show_in_panel = layer_name != 'population_target_settings'
 
             # 誘導区域レイヤ、または仮想居住誘導区域レイヤのレイヤパネルへの追加
             if layer_name == 'induction_areas':

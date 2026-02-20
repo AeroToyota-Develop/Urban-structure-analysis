@@ -42,6 +42,7 @@ _config_dir = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), '../config'
 )
 _config_file = os.path.join(_config_dir, 'LayersColoringConfig.xml')
+_metric_config_file = os.path.join(_config_dir, 'MetricCalculationConfig.xml')
 
 _qml_dir = os.path.join(os.path.dirname(
     os.path.abspath(__file__)), '../qml_files'
@@ -102,6 +103,11 @@ class LayersColoring:
         :return: レイヤー設定の辞書
         :rtype: dict
         """
+        metric_tree = ET.parse(_metric_config_file)
+        metric_root = metric_tree.getroot()
+        elem = metric_root.find('threshold_bus')
+        threshold_bus = elem.text
+
         tree = ET.parse(_config_file)
         root = tree.getroot()
 
@@ -132,12 +138,14 @@ class LayersColoring:
                 for data in layer.find('datalist'):
                     data_info = {}
                     if layer_info['type'] == 'categorized':
-                        data_info['value'] = data.find('value').text
+                        value = data.find('value').text
+                        if value == 'threshold_bus':
+                            value = threshold_bus
+                        data_info['value'] = value
                         data_info['label_name'] = safe_find(
                             data, 'label_name', ''
                         )
                         data_info['renderPass'] = safe_find(data, 'renderPass', '0')
-                        data_info['render'] = safe_find(data, 'render', 'true')
                     elif layer_info['type'] == 'graduated':
                         data_info['upperthreshold'] = (
                             data.find('upperthreshold').text
@@ -353,7 +361,6 @@ class LayersColoring:
                         'line_style': data['borderStyle'],
                         'width': data['lineWidth']
                     })
-                    #symbol.setWidthUnit(QgsUnitTypes.RenderPoints)
             elif layer_info['geometryType'] == 'point':
                 symbol = QgsMarkerSymbol.createSimple({
                     'size': data['size'],
@@ -418,7 +425,6 @@ class LayersColoring:
                     'width': data['lineWidth'],
                     "width_unit": "POINTS",
                 })
-                #symbol.setWidthUnit(QgsUnitTypes.RenderPoints)
             elif layer_info['geometryType'] == 'point':
                 symbol = QgsMarkerSymbol.createSimple({
                     'size': data['size'],
@@ -433,12 +439,6 @@ class LayersColoring:
 
             category = QgsRendererCategory(data['value'], symbol, data['value'])
             category.setLabel(data['label_name'])
-
-            if data['render'] == 'true':
-                category.setRenderState(True)
-            else:
-                category.setRenderState(False)
-
             categories.append(category)
 
         renderer = QgsCategorizedSymbolRenderer(
@@ -667,7 +667,6 @@ class LayersColoring:
         layer_order = []
 
         for layer_info in self.layer_config[item_val][year]:
-            print(layer_info)
             if 'yyyy' in layer_info['column']:
                 layer_info['column'] = (
                     layer_info['column'].replace('yyyy', year)
@@ -680,14 +679,13 @@ class LayersColoring:
             if not layers and layer_name == '誘導区域':
                 is_residential_induction = False
                 for data in layer_info.get('data', []):
-                    if data.get('label_name') == '居住誘導区域' and data.get('render', 'true') == 'true':
+                    if data.get('label_name') == '居住誘導区域':
                         is_residential_induction = True
                         break
 
                 if is_residential_induction:
                     layers = QgsProject.instance().mapLayersByName('仮想居住誘導区域')
                     if layers:
-                        print("誘導区域レイヤが見つからないため、仮想居住誘導区域を使用します")
                         layer_info['name'] = '仮想居住誘導区域'
                         for data in layer_info.get('data', []):
                             if data.get('label_name') == '居住誘導区域':
@@ -748,8 +746,6 @@ class LayersColoring:
                     )
                 except ValueError:
                     pass
-            else:
-                pass
 
         layer_order.sort(key=lambda x: x[0])
         layer_tree = QgsProject.instance().layerTreeRoot()
@@ -811,9 +807,9 @@ class LayersColoring:
         一時ファイルを使用して、QMLファイル内のattr属性の年次部分を置換
 
         :param qml_path: 元のQMLファイルパス
-        :rtype: str
+        :type qml_path: str
         :param year: 置換する年次
-        :rtype: str
+        :type year: str
 
         :return: 一時QMLファイルのパス
         :rtype: str

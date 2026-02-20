@@ -76,12 +76,12 @@ class DisasterPreventionMetricCalculator:
                 target_zones_data = target_zones_layer.dataProvider()
                 target_zones_data.addAttributes(zones_layer.fields())
                 target_zones_layer.updateFields()
-                
+
                 target_zones_features = []
                 for zone_feature in zones_layer.getFeatures():
                     if zone_feature["is_target"] == 1:
                         target_zones_features.append(zone_feature)
-                
+
                 if target_zones_features:
                     target_zones_data.addFeatures(target_zones_features)
                     target_zones_layer.updateExtents()
@@ -141,7 +141,7 @@ class DisasterPreventionMetricCalculator:
 
             # 各ハザードエリアと行政区域の交差処理
             # target_zones_layerと交差するハザードエリアのみを抽出
-            
+
             # L1ハザードエリア（計画規模）の集計対象の行政区域でフィルタ抽出
             hazard_area_l1_constrained = None
             if hazard_area_l1_layer:
@@ -155,7 +155,7 @@ class DisasterPreventionMetricCalculator:
                     },
                 )
                 hazard_area_l1_constrained = l1_constrained_result['OUTPUT']
-            
+
             # L2ハザードエリア（想定最大規模）の集計対象の行政区域でフィルタ抽出
             hazard_area_l2_constrained = None
             if hazard_area_l2_layer:
@@ -169,7 +169,7 @@ class DisasterPreventionMetricCalculator:
                     },
                 )
                 hazard_area_l2_constrained = l2_constrained_result['OUTPUT']
-            
+
             # 津波ハザードエリアの集計対象の行政区域でフィルタ抽出
             hazard_area_tsunami_constrained = None
             if hazard_area_tsunamis_layer:
@@ -208,7 +208,7 @@ class DisasterPreventionMetricCalculator:
             # 各ハザードエリア内の建物を取得（深度別フィルタリング）
             if self.check_canceled():
                 return  # キャンセルチェック
-            
+
             # L1範囲の建物を取得（全レベル）
             l1_buildings = None
             if hazard_area_l1_constrained:
@@ -229,7 +229,7 @@ class DisasterPreventionMetricCalculator:
 
             if self.check_canceled():
                 return  # キャンセルチェック
-            
+
             # L2範囲の建物を取得（全レベル）
             l2_buildings = None
             if hazard_area_l2_constrained:
@@ -250,7 +250,7 @@ class DisasterPreventionMetricCalculator:
 
             if self.check_canceled():
                 return  # キャンセルチェック
-            
+
             # 津波範囲の建物を取得（全レベル）
             tsunami_buildings = None
             if hazard_area_tsunami_constrained:
@@ -300,7 +300,7 @@ class DisasterPreventionMetricCalculator:
                                     pop_value = feature[year_field]
                                     if pop_value is not None:
                                         flood_plan_0p5m_pop += int(pop_value)
-                                
+
                                 # L1浸水区域内人口（3m以上）rank>=3
                                 if rank_int >= 3:
                                     pop_value = feature[year_field]
@@ -322,7 +322,7 @@ class DisasterPreventionMetricCalculator:
                                     pop_value = feature[year_field]
                                     if pop_value is not None:
                                         flood_assumed_0p5m_pop += int(pop_value)
-                                
+
                                 # L2浸水区域内人口（3m以上）rank>=3
                                 if rank_int >= 3:
                                     pop_value = feature[year_field]

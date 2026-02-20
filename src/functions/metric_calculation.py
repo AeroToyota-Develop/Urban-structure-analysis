@@ -31,10 +31,6 @@ from PyQt5.QtWidgets import (QApplication, QDialog, QFileDialog, # pylint: disab
                              QMessageBox, QProgressDialog)
 
 from qgis.core import QgsMessageLog, Qgis, QgsProject, QgsCoordinateReferenceSystem, QgsProcessingFeedback, QgsRasterLayer
-from ..algorithms.workers.metric_calculation_worker import (
-    MetricCalculationWorker
-)
-
 
 class ProcessingWorker(QThread):
     """プロセシング実行用ワーカースレッド"""
@@ -97,7 +93,7 @@ class MetricCalculation(QDialog):
         config_file (str): メトリック計算に関連する設定ファイルのパス。
         visualization_config_file (str): 可視化設定ファイルのパス。
         progress_dialog (QProgressDialog): 計算プロセスの進行状況を表示するダイアログ。
-        worker (MetricCalculationWorker): 計算処理を担当するワーカーオブジェクト。
+        worker: 計算処理を担当するワーカーオブジェクト。
 
     メソッド:
         __init__(self, translator=None): ダイアログを初期化し、翻訳機能を設定します。

@@ -194,7 +194,15 @@ class BuildingDataAssigner:
                             if field_id == -1:
                                 continue
 
-                            value = mesh_feature[field]
+                            # yyyy_populationの場合はyyyy_target_area_populationから値を取得
+                            # future_yyyy_XXXの場合はfuture_yyyy_target_area_XXXから値を取得
+                            mesh_field = field
+                            if re.match(r'^20\d{2}_population$', field):
+                                mesh_field = field.replace('_population', '_target_area_population')
+                            elif re.match(r'^future_20\d{2}_PT\w+$', field):
+                                mesh_field = re.sub(r'^(future_\d{4})_(\w+)$', r'\1_target_area_\2', field)
+
+                            value = mesh_feature[mesh_field]
                             current_value = building_feature[field]
                             if (
                                 isinstance(current_value, QVariant)
@@ -241,7 +249,15 @@ class BuildingDataAssigner:
                                 )
                                 continue
 
-                            value = mesh_feature[field]
+                            # yyyy_populationの場合はyyyy_target_area_populationから値を取得
+                            # future_yyyy_XXXの場合はfuture_yyyy_target_area_XXXから値を取得
+                            mesh_field = field
+                            if re.match(r'^20\d{2}_population$', field):
+                                mesh_field = field.replace('_population', '_target_area_population')
+                            elif re.match(r'^future_20\d{2}_PT\w+$', field):
+                                mesh_field = re.sub(r'^(future_\d{4})_(\w+)$', r'\1_target_area_\2', field)
+
+                            value = mesh_feature[mesh_field]
 
                             current_value = building_feature[field]
                             if (

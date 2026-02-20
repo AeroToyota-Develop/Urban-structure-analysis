@@ -39,7 +39,7 @@ class ZoneDataGenerator:
     def tr(self, message):
         """翻訳用のメソッド"""
         return QCoreApplication.translate(self.__class__.__name__, message)
-    
+
     def create_zone(self):
         """ゾーンポリゴン 作成"""
         try:
@@ -97,13 +97,13 @@ class ZoneDataGenerator:
                     "N03_005": "district_name",  # 政令指定都市の行政区名
                     "N03_007": "code",  # 全国地方公共団体コード
                 }
-                
+
                 # 既存フィールドをリネーム
                 for old_name, new_name in field_mapping.items():
                     if old_name in layer.fields().names():
                         idx = layer.fields().indexOf(old_name)
                         provider.renameAttributes({idx: new_name})
-                
+
                 layer.updateFields()
                 layers.append(layer)
 
@@ -133,14 +133,14 @@ class ZoneDataGenerator:
             provider = merged_layer.dataProvider()
             provider.addAttributes([QgsField("is_target", QVariant.Int)])
             merged_layer.updateFields()
-            
+
             # 全フィーチャをis_target=0（非集計対象）として設定
             field_idx = merged_layer.fields().indexOf("is_target")
             updates = {}
             for feature in merged_layer.getFeatures():
                 updates[feature.id()] = {field_idx: 0}
             provider.changeAttributeValues(updates)
-            
+
             # 市区町村の選択ダイアログを表示
             result = self.__select_target_municipality(merged_layer)
             if result is False:
@@ -282,7 +282,7 @@ class ZoneDataGenerator:
             )
 
         return layer
-    
+
     def __fix_invalid_geometries(self, layer):
         """Fix invalid geometries in the layer"""
         msg_start = self.tr(

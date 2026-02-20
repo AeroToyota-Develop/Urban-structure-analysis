@@ -56,15 +56,15 @@ class PublicTransportMetricCalculator:
             if not buildings_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "buildings"))
-            
+
             if not zones_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "zones"))
-                    
+
             if not railway_station_buffers_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "railway_station_buffers"))
-                    
+
             if not bus_stop_buffers_layer:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "bus_stop_buffers"))
@@ -80,12 +80,12 @@ class PublicTransportMetricCalculator:
                 target_zones_data = target_zones_layer.dataProvider()
                 target_zones_data.addAttributes(zones_layer.fields())
                 target_zones_layer.updateFields()
-                
+
                 target_zones_features = []
                 for zone_feature in zones_layer.getFeatures():
                     if zone_feature["is_target"] == 1:
                         target_zones_features.append(zone_feature)
-                
+
                 if target_zones_features:
                     target_zones_data.addFeatures(target_zones_features)
                     target_zones_layer.updateExtents()
@@ -186,7 +186,7 @@ class PublicTransportMetricCalculator:
                 # 鉄道カバー圏人口
                 rail_pop_covered = self.__aggregate_sum(railway_buildings, year_field)
 
-                # バスカバー圏人口  
+                # バスカバー圏人口
                 bus_pop_covered = self.__aggregate_sum(bus_buildings, year_field)
 
                 # 公共交通カバー圏人口（鉄道またはバス）- ユニオン処理

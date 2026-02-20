@@ -77,7 +77,7 @@ class FiscalMetricCalculator:
 
             # 固定資産税関連データを計算
             land_tax_data = self.calculate_land_tax_data(target_cities)
-            
+
             # 一人当たり歳出額関連データを計算
             per_capita_data = self.calculate_per_capita_data(target_cities)
 
@@ -87,7 +87,7 @@ class FiscalMetricCalculator:
                 # 利用可能な全年度のデータを出力
                 fixed_asset_dir = os.path.join(self.input_folder, "25_固定資産の価格等の概要調書")
                 annual_tax_data = {}
-                
+
                 if os.path.exists(fixed_asset_dir):
                     for folder_name in os.listdir(fixed_asset_dir):
                         folder_path = os.path.join(fixed_asset_dir, folder_name)
@@ -99,7 +99,7 @@ class FiscalMetricCalculator:
                                     annual_tax_data[year] = data
                             except ValueError:
                                 continue
-                
+
                 # 各年度の税収を計算（万円）
                 tax_by_year = {}
                 for year, data in annual_tax_data.items():
@@ -165,11 +165,11 @@ class FiscalMetricCalculator:
 
             # 歳出額データを期間別に出力
             expenditure_data_list = []
-            
+
 
             # 期間別計算（元の実装を使用）
             settlement_dir = os.path.join(self.input_folder, "26_市町村別決算状況調")
-            
+
             if os.path.exists(settlement_dir):
                 # 期間別計算
                 periods = [
@@ -299,13 +299,13 @@ class FiscalMetricCalculator:
         try:
             # 固定資産の価格等の概要調書パス
             fixed_asset_dir = os.path.join(self.input_folder, "25_固定資産の価格等の概要調書")
-            
+
             # 利用可能な全年度のデータを取得
             annual_tax_data = {}
-            
+
             if not os.path.exists(fixed_asset_dir):
                 return {'latest_year': '―', 'latest_tax': '―', 'change_rate': '―'}
-            
+
             # 年度フォルダを検索
             for folder_name in os.listdir(fixed_asset_dir):
                 folder_path = os.path.join(fixed_asset_dir, folder_name)
@@ -318,10 +318,10 @@ class FiscalMetricCalculator:
                             annual_tax_data[year] = data
                         except ValueError:
                             continue
-            
+
             if len(annual_tax_data) < 1:
                 return {'latest_year': '―', 'latest_tax': '―', 'change_rate': '―'}
-            
+
             # 各年度の固定資産税収を計算（万円）
             tax_by_year = {}
             for year, data in annual_tax_data.items():
@@ -333,15 +333,15 @@ class FiscalMetricCalculator:
 
                 if total_tax > 0:
                     tax_by_year[year] = total_tax
-            
+
             if len(tax_by_year) == 0:
                 return {'latest_year': '―', 'latest_tax': '―', 'change_rate': '―'}
-            
+
             # 最新年度のデータを取得
             sorted_years = sorted(tax_by_year.keys())
             latest_year = sorted_years[-1]
             latest_tax = tax_by_year[latest_year]
-            
+
             # 変化率を計算（2年度以上ある場合）
             change_rate = '―'
             if len(sorted_years) >= 2:
@@ -350,15 +350,15 @@ class FiscalMetricCalculator:
 
                 if earliest_tax > 0:
                     change_rate = self.round_or_na(latest_tax / earliest_tax, 3)
-            
+
             result = {
                 'latest_year': latest_year,
                 'latest_tax': self.round_or_na(latest_tax, 3),
                 'change_rate': change_rate
             }
-            
+
             return result
-                
+
         except Exception as e:
             QgsMessageLog.logMessage(
                 self.tr("Error in fixed asset tax calculation: %1").replace("%1", str(e)),
@@ -473,13 +473,13 @@ class FiscalMetricCalculator:
         try:
             # 市町村別決算状況調パス
             settlement_dir = os.path.join(self.input_folder, "26_市町村別決算状況調")
-            
+
             if not os.path.exists(settlement_dir):
                 return {'latest_per_capita': '―', 'recent_avg_change': '―'}
-            
+
             # 利用可能な全年度のデータを読み込み
             annual_data = {}
-            
+
             for folder_name in os.listdir(settlement_dir):
                 folder_path = os.path.join(settlement_dir, folder_name)
                 if os.path.isdir(folder_path) and "年度" in folder_name:
@@ -490,34 +490,34 @@ class FiscalMetricCalculator:
                             annual_data[year] = data
                     except ValueError:
                         continue
-            
+
             if len(annual_data) < 1:
                 return {'latest_per_capita': '―', 'recent_avg_change': '―'}
-            
+
             # 各年の一人当たり歳出額を計算
             per_capita_by_year = {}
-            
+
             for year, data in annual_data.items():
                 total_expenditure = 0
                 total_population = 0
-                
+
                 for city_info in target_cities:
                     exp, pop = self.extract_expenditure_population(data, city_info)
                     total_expenditure += exp
                     total_population += pop
-                
-                
+
+
                 if total_population > 0:
                     per_capita_by_year[year] = total_expenditure / total_population
-            
+
             if len(per_capita_by_year) == 0:
                 return {'latest_per_capita': '―', 'recent_avg_change': '―'}
-            
+
             # 最新年度の一人当たり歳出額を取得
             sorted_years = sorted(per_capita_by_year.keys())
             latest_year = sorted_years[-1]
             latest_per_capita = per_capita_by_year[latest_year]
-            
+
             # 対前年比増減率を計算（2年以上ある場合）
             recent_avg_change = '―'
             if len(sorted_years) >= 2:
@@ -529,40 +529,40 @@ class FiscalMetricCalculator:
                     if per_capita_by_year[prev_year] > 0:
                         growth_rate = (per_capita_by_year[curr_year] - per_capita_by_year[prev_year]) / per_capita_by_year[prev_year]
                         growth_rates[curr_year] = growth_rate
-                
+
                 # 取り込めたデータの最新年を基準に期間を設定
                 available_years = sorted(growth_rates.keys())
-                
+
                 if len(available_years) > 0:
                     latest_growth_year = available_years[-1]
-                    
+
                     # 直近5年間：最新年から過去5年間
                     recent_start = latest_growth_year - 4
                     recent_end = latest_growth_year
-                    
-                    # 過去5年間：直近5年間の前の5年間  
+
+                    # 過去5年間：直近5年間の前の5年間
                     past_start = recent_start - 5
                     past_end = recent_start - 1
-                    
+
                     # 実際に取り込めたデータのみで集計
-                    past_rates = [growth_rates[y] for y in available_years 
+                    past_rates = [growth_rates[y] for y in available_years
                                  if past_start <= y <= past_end and y in growth_rates]
-                    recent_rates = [growth_rates[y] for y in available_years 
+                    recent_rates = [growth_rates[y] for y in available_years
                                    if recent_start <= y <= recent_end and y in growth_rates]
-                    
+
                     if len(past_rates) > 0 and len(recent_rates) > 0:
                         past_avg = sum(past_rates) / len(past_rates)
                         recent_avg = sum(recent_rates) / len(recent_rates)
-                        
+
                         if past_avg != 0:
                             change_ratio = recent_avg / past_avg
                             recent_avg_change = self.round_or_na(change_ratio, 3)
-            
+
             return {
                 'latest_per_capita': self.round_or_na(latest_per_capita, 0),
                 'recent_avg_change': recent_avg_change
             }
-            
+
         except Exception as e:
             QgsMessageLog.logMessage(
                 self.tr("Error in per capita expenditure calculation: %1").replace("%1", str(e)),
@@ -601,7 +601,7 @@ class FiscalMetricCalculator:
                             Qgis.Warning,
                         )
                         continue
-            
+
             return None
         except Exception as e:
             QgsMessageLog.logMessage(
@@ -622,23 +622,23 @@ class FiscalMetricCalculator:
 
             # 都道府県名をスペース区切りに変換（例：栃木県 → 栃　木　県）
             spaced_prefecture = '　'.join(list(prefecture_name))
-            
-            
+
+
             # 全シートから該当市町村を検索
             for df in excel_data.values():
                 if df is None or df.empty:
                     continue
-                    
+
                 # 2段階検索：1) 都道府県を探す 2) その後の市区町村を探す
                 in_target_prefecture = False
-                
+
                 for row_idx, row in df.iterrows():
                     try:
                         # P列（index=15）をチェック
                         if len(row) > 15:
                             p_col = row.iloc[15] if hasattr(row, 'iloc') else row[15]
                             p_col_text = str(p_col).strip() if pd.notna(p_col) else ""
-                            
+
                             # 1段階目：都道府県を探す
                             if p_col_text == spaced_prefecture:
                                 in_target_prefecture = True
@@ -704,7 +704,7 @@ class FiscalMetricCalculator:
             # 都道府県平均値
             'land_fixed_asset_tax_revenue_pref_avg': '―',
         }
-        
+
         # 歳出額ファイル用の空データ
         empty_expenditure_data_list = [
             {
@@ -740,7 +740,7 @@ class FiscalMetricCalculator:
                 'per_capita_expenditure_delta_pref_avg': '―',
             }
         ]
-        
+
         # 2つのファイルに分離してエクスポート
         self.export(
             os.path.join(self.output_folder, 'IF106_財政関連評価指標_固定資産税ファイル.csv'),
@@ -810,7 +810,7 @@ class FiscalMetricCalculator:
                 # 都道府県平均値
                 'per_capita_expenditure_delta_pref_avg': '―',
             }
-            
+
         except Exception as e:
             QgsMessageLog.logMessage(
                 self.tr("Error in period expenditure calculation: %1").replace("%1", str(e)),

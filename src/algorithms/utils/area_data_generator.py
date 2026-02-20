@@ -112,7 +112,7 @@ class AreaDataGenerator:
 
         if self.check_canceled():
             return  # キャンセルチェック
-        self.create_urbun_planning_area()
+        self.create_urban_planning_area()
 
         if self.check_canceled():
             return  # キャンセルチェック
@@ -163,7 +163,7 @@ class AreaDataGenerator:
 
             # 投影座標系に変換（EPSG:3857 - Web Mercator）
             target_crs = QgsCoordinateReferenceSystem('EPSG:3857')
-            
+
             # 座標系変換
             reprojected_layer = processing.run(
                 "native:reprojectlayer",
@@ -252,7 +252,7 @@ class AreaDataGenerator:
 
             # 投影座標系に変換（EPSG:3857 - Web Mercator）
             target_crs = QgsCoordinateReferenceSystem('EPSG:3857')
-            
+
             # 座標系変換
             reprojected_layer = processing.run(
                 "native:reprojectlayer",
@@ -613,11 +613,6 @@ class AreaDataGenerator:
                             shelter_buffer_feature
                         )
                         shelter_buffer_layer.updateExtents()  # レイヤの範囲を更新
-                    else:
-                        print(self.tr(
-                            "AreaDataGenerator: Buffered object "
-                            "is not a polygon."
-                        ))
 
                 shelter_count += 1
                 if (shelter_count % 100) == 0:
@@ -1340,7 +1335,7 @@ class AreaDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                
+
                 # 空のレイヤを作成
                 empty_layer = QgsVectorLayer(
                     "Polygon", "land_use_maps", "memory"
@@ -1355,13 +1350,13 @@ class AreaDataGenerator:
                     ]
                 )
                 empty_layer.updateFields()
-                
+
                 # 空のレイヤをGeoPackageに保存
                 if not self.gpkg_manager.add_layer(
                     empty_layer, "land_use_maps", "土地利用細分化メッシュ"
                 ):
                     raise Exception(self.tr("Failed to add layer to GeoPackage."))
-                
+
                 return True
 
             for shp_file in shp_files:
@@ -1483,7 +1478,7 @@ class AreaDataGenerator:
             # base_path 配下の「13_変化度マップ（建物変化）」フォルダを再帰的に探索してShapefileを収集
             change_maps_folder = os.path.join(self.base_path, "13_変化度マップ（建物変化）")
             all_shp_files = self.__get_shapefiles(change_maps_folder)
-            
+
             # 建物変化新築のファイルのみをフィルタリング
             shp_files = [
                 shp_file for shp_file in all_shp_files
@@ -1504,7 +1499,7 @@ class AreaDataGenerator:
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                
+
                 # 空のレイヤを作成
                 empty_layer = QgsVectorLayer(
                     "Polygon", "change_maps", "memory"
@@ -1521,13 +1516,13 @@ class AreaDataGenerator:
                     ]
                 )
                 empty_layer.updateFields()
-                
+
                 # 空のレイヤをGeoPackageに保存
                 if not self.gpkg_manager.add_layer(
                     empty_layer, "change_maps", "変化度マップ"
                 ):
                     raise Exception(self.tr("Failed to add layer to GeoPackage."))
-                
+
                 return True
 
             for shp_file in shp_files:
@@ -1565,7 +1560,7 @@ class AreaDataGenerator:
                 if not required_fields.issubset(layer_fields):
                     missing_fields = required_fields - layer_fields
                     available_fields = layer_fields
-                    
+
                     data_name = self.tr("change maps")
                     msg = (
                         self.tr("%1 cannot be loaded as %2 data.")
@@ -1577,7 +1572,7 @@ class AreaDataGenerator:
                         self.tr("Plugin"),
                         Qgis.Warning,
                     )
-                    
+
                     # 不足しているフィールドをログ出力
                     missing_msg = self.tr(
                         "Missing required fields: %1"
@@ -1587,7 +1582,7 @@ class AreaDataGenerator:
                         self.tr("Plugin"),
                         Qgis.Warning,
                     )
-                    
+
                     # 利用可能なフィールドをログ出力
                     available_msg = self.tr(
                         "Available fields in shapefile: %1"
@@ -1655,12 +1650,12 @@ class AreaDataGenerator:
                     ]
                 )
                 empty_layer.updateFields()
-                
+
                 if not self.gpkg_manager.add_layer(
                     empty_layer, "change_maps", "変化度マップ"
                 ):
                     raise Exception(self.tr("Failed to add layer to GeoPackage."))
-                
+
                 return True
 
             # 複数のレイヤをマージ
@@ -1691,7 +1686,7 @@ class AreaDataGenerator:
             )
             raise e
 
-    def create_urbun_planning_area(self):
+    def create_urban_planning_area(self):
         """都市計画区域 作成"""
         try:
             # base_path 配下の「21_誘導区域」フォルダを再帰的に探索してShapefileを収集
@@ -1770,7 +1765,7 @@ class AreaDataGenerator:
                 # 一時メモリレイヤを作成し、Shapefileのデータを取り込み
                 temp_layer = QgsVectorLayer(
                     f"Polygon?crs={layer.crs().authid()}",
-                    "urbun_plannings",
+                    "urban_plannings",
                     "memory",
                 )
                 temp_provider = temp_layer.dataProvider()
@@ -1829,13 +1824,13 @@ class AreaDataGenerator:
             # 複数のレイヤをマージ
             merged_layer = self.__merge_layers(layers)
 
-            # urbun_planningsレイヤをGeoPackageに保存
+            # urban_planningsレイヤをGeoPackageに保存
             if not self.gpkg_manager.add_layer(
-                merged_layer, "urbun_plannings", "都市計画区域"
+                merged_layer, "urban_plannings", "都市計画区域"
             ):
                 raise Exception(self.tr("Failed to add layer to GeoPackage."))
 
-            data_name = self.tr("urbun_planning")
+            data_name = self.tr("urban_planning")
             msg = self.tr(
                 "%1 data generation completed."
             ).replace("%1", data_name)
@@ -3097,11 +3092,11 @@ class AreaDataGenerator:
                 raw_data = f.read()
                 result = chardet.detect(raw_data)
                 encoding = result.get('encoding')
-                
+
                 # encodingがNoneの場合はデフォルトをUTF-8に
                 if not encoding:
                     encoding = 'UTF-8'
-                    
+
                 if encoding == 'MacRoman':
                     msg = self.tr(
                         "%1 was detected. Using SHIFT_JIS for the file %2."

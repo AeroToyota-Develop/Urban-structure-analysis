@@ -41,13 +41,6 @@ class GpkgManager:
     def make_gpkg(self):
         """GeoPackage作成"""
         try:
-            # # 既存のGeoPackageから読み込んだレイヤをレイヤパネルから削除
-            # for layer in QgsProject.instance().mapLayers().values():
-            #     if os.path.normpath(layer.source()).startswith(
-            #         os.path.normpath(self.geopackage_path)
-            #     ):
-            #         QgsProject.instance().removeMapLayer(layer)
-
             # GeoPackageが存在しない場合、新規作成する
             if not os.path.exists(self.geopackage_path):
                 # 空のレイヤーを作成してGeoPackageを初期化
