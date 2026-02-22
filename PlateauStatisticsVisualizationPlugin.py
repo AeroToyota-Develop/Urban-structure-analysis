@@ -280,7 +280,13 @@ class PlateauStatisticsVisualizationPlugin:
     def _calcMetric(self):
         """MetricCalculationダイアログを使用して指標計算を実行する関数"""
         metricCalculation = MetricCalculation(self.translator)
+        metricCalculation.calculationFinished.connect(self._on_metric_calculation_finished)
         metricCalculation.exec_()
+
+    def _on_metric_calculation_finished(self):
+        """評価指標算出完了時にRevisedAreaGraphDockの設定を再読み込みする"""
+        if self.revised_area_graph_dock:
+            self.revised_area_graph_dock.reload_revised_area_config()
 
     def _visualizing(self):
         """ControlDockおよびGraphDockを開き、可視化を行う関数"""

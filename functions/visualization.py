@@ -4309,6 +4309,14 @@ class RevisedAreaGraphDock(GraphDock):
         # 色をチェック・適用
         self.check_colors_with_custom_config()
 
+    def reload_revised_area_config(self):
+        """評価指標算出後にRevisedAreaVisualizationConfig.xmlを再読み込みする"""
+        self.revised_area_datasets = {}
+        if os.path.exists(_revised_area_config_file):
+            _, _, self.revised_area_datasets = load_config(
+                self.datalist_file, _revised_area_config_file, None
+            )
+
     def update_plots(self, data_item):
         """
         修正区域グラフのプロットを更新します

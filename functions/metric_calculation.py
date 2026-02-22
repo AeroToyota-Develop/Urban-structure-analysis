@@ -113,6 +113,8 @@ class MetricCalculation(QDialog):
         update_xml_paths(xml_file_path, input_folder_path):
             指定されたXMLファイル内のパスを新しい入力フォルダパスで更新します。
     """
+    calculationFinished = pyqtSignal()
+
     def __init__(self, translator=None):
         super().__init__()
         self.setup_translator(translator)
@@ -565,6 +567,7 @@ class MetricCalculation(QDialog):
         if gpkg_manager:
             gpkg_manager.add_layers_to_project()
 
+        self.calculationFinished.emit()
         QMessageBox.information(self, "完了", "評価指標算出が完了しました")
         self.close()
 
