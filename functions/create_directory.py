@@ -190,9 +190,9 @@ class CreateDirectory(QDialog):
         root = ET.Element('config')
         ET.SubElement(root, 'input_folder').text = directory_path
         ET.SubElement(root, 'output_folder').text = ''
-        ET.SubElement(root, 'threshold_bus').text = ''
-        ET.SubElement(root, 'threshold_railway').text = ''
-        ET.SubElement(root, 'threshold_shelter').text = ''
+        ET.SubElement(root, 'threshold_bus').text = '300'
+        ET.SubElement(root, 'threshold_railway').text = '800'
+        ET.SubElement(root, 'threshold_shelter').text = '1000'
 
         tree = ET.ElementTree(root)
         tree.write(self.config_file, encoding='utf-8', xml_declaration=True)
