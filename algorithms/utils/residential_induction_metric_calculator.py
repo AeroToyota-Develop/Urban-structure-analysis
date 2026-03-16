@@ -23,11 +23,12 @@ from .gpkg_manager import GpkgManager
 
 class ResidentialInductionMetricCalculator:
     """居住誘導関連評価指標算出機能"""
-    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None, file_suffix=""):
         self.base_path = base_path
         self.check_canceled = check_canceled_callback
 
         self.gpkg_manager = gpkg_manager
+        self.file_suffix = file_suffix
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -152,7 +153,7 @@ class ResidentialInductionMetricCalculator:
                     )
                     target_zones_layer = None
 
-            # target_zones_layerがない場合は集計を行わない
+            # target_zones_layerがない場合はヘッダーだけのCSVを出力
             if not target_zones_layer:
                 msg = self.tr("No target zones available. Returning empty results.")
                 QgsMessageLog.logMessage(
@@ -160,8 +161,10 @@ class ResidentialInductionMetricCalculator:
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                # 空の結果を返す
-                return []
+                self.__export_empty_results()
+                return
+
+            self.target_zones_layer = target_zones_layer
 
             # 建物の重心を計算
             centroids_result = processing.run(
@@ -176,6 +179,14 @@ class ResidentialInductionMetricCalculator:
 
             if self.check_canceled():
                 return  # キャンセルチェック
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': centroids_all}
+            )
+            processing.run(
+                "native:createspatialindex", {'INPUT': target_zones_layer}
+            )
 
             # target_zones内の重心のみを抽出
             if target_zones_layer and target_zones_layer.featureCount() > 0:
@@ -218,6 +229,8 @@ class ResidentialInductionMetricCalculator:
             )
             if not centroid_layer:
                 raise Exception(self.tr("Failed to add layer to GeoPackage."))
+
+            self.centroid_layer = centroid_layer
 
             # 属性名を取得
             fields = buildings_layer.fields()
@@ -276,7 +289,7 @@ class ResidentialInductionMetricCalculator:
                 )
                 residential_area_layer = None
 
-            # residential_area_layerがない場合は処理を終了
+            # residential_area_layerがない場合はヘッダーだけのCSVを出力
             if not residential_area_layer:
                 msg = self.tr("No residential areas available. Returning empty results.")
                 QgsMessageLog.logMessage(
@@ -284,7 +297,8 @@ class ResidentialInductionMetricCalculator:
                     self.tr("Plugin"),
                     Qgis.Warning,
                 )
-                return []
+                self.__export_empty_results()
+                return
 
             # target_zones_layerがある場合、居住誘導区域をtarget_zonesでクリップ
             if target_zones_layer and residential_area_layer.featureCount() > 0:
@@ -604,11 +618,8 @@ class ResidentialInductionMetricCalculator:
                 # 辞書をリストに追加
                 data_list.append(year_data)
 
-            # ファイルパスを指定してエクスポート
-            self.export(
-                self.base_path + '\\IF101_居住誘導区域関連評価指標ファイル.csv',
-                data_list,
-            )
+            # エクスポート（空の場合はヘッダーだけのCSVを出力）
+            self.__export_if101_data(data_list)
 
             # IF107 将来人口と目標人口の関係性ファイルを算出出力
             self.calc_future_target_population_relationship()
@@ -641,7 +652,9 @@ class ResidentialInductionMetricCalculator:
                 writer.writeheader()
 
                 for row in data:
-                    writer.writerow(row)
+                    # 全値が空文字の行（ヘッダー定義用）はスキップ
+                    if any(v != '' for v in row.values()):
+                        writer.writerow(row)
 
             msg = self.tr(
                 "File export completed: %1."
@@ -690,92 +703,8 @@ class ResidentialInductionMetricCalculator:
                 raise Exception(self.tr("The %1 layer was not found.")
                     .replace("%1", "population_target_settings"))
 
-            # 建物の重心を計算
-            centroids_result = processing.run(
-                "native:centroids",
-                {
-                    'INPUT': buildings_layer,
-                    'ALL_PARTS': False,
-                    'OUTPUT': 'memory:'
-                }
-            )
-            centroid_layer = centroids_result['OUTPUT']
-
-            # 行政区域レイヤを読み込み
-            zones_layer = self.gpkg_manager.load_layer(
-                'zones', None, withload_project=False
-            )
-
-            # is_target=1のzonesを取得してフィルタリング用のレイヤを作成
-            target_zones_layer = None
-            if zones_layer:
-                target_zones_layer = QgsVectorLayer(
-                    "Polygon?crs=" + zones_layer.crs().authid(),
-                    "target_zones",
-                    "memory",
-                )
-                target_zones_data = target_zones_layer.dataProvider()
-                target_zones_data.addAttributes(zones_layer.fields())
-                target_zones_layer.updateFields()
-
-                target_zones_features = []
-                for zone_feature in zones_layer.getFeatures():
-                    if zone_feature["is_target"] == 1:
-                        target_zones_features.append(zone_feature)
-
-                if target_zones_features:
-                    target_zones_data.addFeatures(target_zones_features)
-                    target_zones_layer.updateExtents()
-                    msg = self.tr("Using %1 target zones (is_target=1) for calculation.").replace("%1", str(len(target_zones_features)))
-                    QgsMessageLog.logMessage(
-                        msg,
-                        self.tr("Plugin"),
-                        Qgis.Info,
-                    )
-                else:
-                    # is_target=1のゾーンがない場合は集計対象なし
-                    msg = self.tr("No target zones (is_target=1) found. No calculation will be performed.")
-                    QgsMessageLog.logMessage(
-                        msg,
-                        self.tr("Plugin"),
-                        Qgis.Warning,
-                    )
-                    target_zones_layer = None
-
-            # target_zones_layerで建物重心をフィルタリング
-            if target_zones_layer and target_zones_layer.featureCount() > 0:
-                # 空間インデックス作成
-                processing.run("native:createspatialindex", {'INPUT': centroid_layer})
-                processing.run("native:createspatialindex", {'INPUT': target_zones_layer})
-
-                joined_result = processing.run(
-                    "native:joinattributesbylocation",
-                    {
-                        'INPUT': centroid_layer,
-                        'JOIN': target_zones_layer,
-                        'PREDICATE': [5],  # within
-                        'JOIN_FIELDS': [],  # フィールド結合は不要
-                        'METHOD': 0,
-                        'DISCARD_NONMATCHING': True,  # マッチしないものは除外
-                        'PREFIX': '',
-                        'OUTPUT': 'memory:'
-                    }
-                )
-                centroid_layer = joined_result['OUTPUT']
-                msg = self.tr("Filtered centroids to target zones (is_target=1).")
-                QgsMessageLog.logMessage(
-                    msg,
-                    self.tr("Plugin"),
-                    Qgis.Info,
-                )
-            else:
-                # target_zonesがない場合は空の結果を返す
-                msg = self.tr("No target zones available. Returning empty results.")
-                QgsMessageLog.logMessage(
-                    msg,
-                    self.tr("Plugin"),
-                    Qgis.Warning,
-                )
+            centroid_layer = self.centroid_layer
+            target_zones_layer = self.target_zones_layer
 
             # 仮想居住誘導区域レイヤを読み込み
             hypothetical_residential_layer = self.gpkg_manager.load_layer(
@@ -863,7 +792,6 @@ class ResidentialInductionMetricCalculator:
                 )
 
             # 空間インデックス作成
-            processing.run("native:createspatialindex", {'INPUT': centroid_layer})
             processing.run("native:createspatialindex", {'INPUT': rpa_layer})
 
             # 年度情報を取得
@@ -1067,7 +995,7 @@ class ResidentialInductionMetricCalculator:
 
             # ファイルパスを指定してエクスポート
             self.export(
-                self.base_path + '\\IF107_将来人口と目標人口の関係性ファイル.csv',
+                self.base_path + f'\\IF107_将来人口と目標人口の関係性ファイル{self.file_suffix}.csv',
                 data_list,
             )
 
@@ -1078,6 +1006,96 @@ class ResidentialInductionMetricCalculator:
                 Qgis.Critical,
             )
             raise e
+
+    def __export_if101_data(self, data_list):
+        """IF101データをCSVにエクスポート（空の場合はヘッダーだけのCSVを出力）"""
+        if not data_list:
+            data_list = [{
+                'year': '',
+                'pop_share_rpa_pop': '',
+                'pop_share_rsma_pop': '',
+                'pop_share_rpa_pop_sheet_a': '',
+                'pop_share_admin_pop': '',
+                'pop_share_none': '',
+                'pop_share_rpa_delta': '',
+                'pop_share_rpa_national_avg': '',
+                'pop_share_rpa_national_sd': '',
+                'pop_share_rpa_pref_avg': '',
+                'pop_share_rpa_pref_sd': '',
+                'pop_share_rpa_pop_delta_rate': '',
+                'trend_vs_past_rpa_pop_2010': '',
+                'trend_vs_past_rsma_pop_2010': '',
+                'trend_vs_past_rpa_pop_2020_sheet_a': '',
+                'trend_vs_past_admin_pop_2010': '',
+                'trend_vs_past_rpa_pop_share': '',
+                'pop_density_rpa': '',
+                'pop_density_rsma': '',
+                'pop_density_rpa_sheet_a': '',
+                'use_hypothetical_areas': '',
+            }]
+        self.export(
+            self.base_path + f'\\IF101_居住誘導区域関連評価指標ファイル{self.file_suffix}.csv',
+            data_list,
+        )
+
+    def __export_empty_results(self):
+        """データなし時にIF101・IF107のヘッダーだけのCSVを出力"""
+        # IF101
+        self.__export_if101_data([])
+        # IF107
+        empty_if107 = [{
+            'admin_pop': '',
+            'city_planning_area_pop': '',
+            'urbanization_promotion_area_pop': '',
+            'zoning_pop': '',
+            'zoning_pop_industrial_only': '',
+            'zoning_pop_excl_industrial': '',
+            'rpa_pop_gis_estimate': '',
+            'rpa_pop_from_intention_survey_r2': '',
+            'rpa_pop_sheet_a': '',
+            'outside_rpa_pop_sheet_a': '',
+            'ufia_pop': '',
+            'rsma_pop': '',
+            'admin_area': '',
+            'city_planning_area': '',
+            'urbanization_promotion_area': '',
+            'zoning_area': '',
+            'zoning_area_excl_industrial': '',
+            'rpa_area': '',
+            'rpa_area_from_intention_survey': '',
+            'rpa_area_sheet_a': '',
+            'ufia_area': '',
+            'ufia_area_from_intention_survey': '',
+            'ufia_area_sheet_a': '',
+            'rsma_area': '',
+            'municipality_projected_pop': '',
+            'target_year': '',
+            'rpa_pop_target': '',
+            'outside_rpa_pop_target': '',
+            'rpa_pop_2020': '',
+            'rpa_projected_pop': '',
+            'outside_rpa_projected_pop': '',
+            'required_induced_pop': '',
+            'required_induced_pop_share_of_rpa_pop_decline': '',
+            'required_induced_pop_share_of_outside_rpa_projected_pop': '',
+            'municipality_type_for_target_achievement_within_municipality': '',
+            'net_in_migration_total_five_year_avg': '',
+            'net_in_migration_total_2020': '',
+            'net_in_migration_total_2021': '',
+            'net_in_migration_total_2022': '',
+            'net_in_migration_total_2023': '',
+            'net_in_migration_total_2024': '',
+            'net_in_migration_domestic_five_year_avg': '',
+            'net_in_migration_domestic_2020': '',
+            'net_in_migration_domestic_2021': '',
+            'net_in_migration_domestic_2022': '',
+            'net_in_migration_domestic_2023': '',
+            'net_in_migration_domestic_2024': '',
+        }]
+        self.export(
+            self.base_path + f'\\IF107_将来人口と目標人口の関係性ファイル{self.file_suffix}.csv',
+            empty_if107,
+        )
 
     def round_or_na(self, value, decimal_places, threshold=None):
         """丸め処理"""

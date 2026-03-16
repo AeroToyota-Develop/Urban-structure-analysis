@@ -21,12 +21,13 @@ from .gpkg_manager import GpkgManager
 
 class UrbanFunctionInductionMetricCalculator:
     """都市機能誘導関連評価指標算出機能"""
-    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None, file_suffix=""):
         self.base_path = base_path
 
         self.check_canceled = check_canceled_callback
 
         self.gpkg_manager = gpkg_manager
+        self.file_suffix = file_suffix
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -183,7 +184,14 @@ class UrbanFunctionInductionMetricCalculator:
                     )
                     target_zones_layer = None
 
-            # target_zones_layerがない場合は処理を終了
+            # target_zones_layerの空間インデックス作成
+            if target_zones_layer:
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': target_zones_layer}
+                )
+
+            # target_zones_layerがない場合は処理をスキップ
             if not target_zones_layer:
                 msg = self.tr("No target zones available. Returning empty results.")
                 QgsMessageLog.logMessage(
@@ -191,7 +199,8 @@ class UrbanFunctionInductionMetricCalculator:
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                return []
+                self.__export_data([])
+                return
 
             # 行政区域内の都市機能誘導区域を抽出
             admin_urban_area_result = processing.run(
@@ -204,6 +213,12 @@ class UrbanFunctionInductionMetricCalculator:
                 },
             )
             admin_urban_area_layer = admin_urban_area_result['OUTPUT']
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex",
+                {'INPUT': admin_urban_area_layer}
+            )
 
             # 居住誘導区域（type_id=31）を取得、なければ仮想居住誘導区域を使用
             # まずtype_id=31の居住誘導区域を探す
@@ -274,7 +289,11 @@ class UrbanFunctionInductionMetricCalculator:
             )
             admin_residential_area_layer = admin_residential_area_result['OUTPUT']
 
-
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex",
+                {'INPUT': admin_residential_area_layer}
+            )
 
             # 都市機能誘導区域内の建物を取得
             result = processing.run(
@@ -709,12 +728,8 @@ class UrbanFunctionInductionMetricCalculator:
                 # 辞書をリストに追加
                 data_list.append(year_data)
 
-            # ファイルパスを指定してエクスポート
-            self.export(
-                self.base_path
-                + '\\IF102_都市機能誘導区域関連評価指標ファイル.csv',
-                data_list,
-            )
+            # エクスポート（空の場合はヘッダーだけのCSVを出力）
+            self.__export_data(data_list)
 
             return
 
@@ -726,6 +741,89 @@ class UrbanFunctionInductionMetricCalculator:
                 Qgis.Critical,
             )
             raise e
+
+    def __export_data(self, data_list):
+        """データをCSVにエクスポート（空の場合はヘッダーだけのCSVを出力）"""
+        if not data_list:
+            data_list = [{
+                'year': '',
+                'ufia_facility_share_total_established': '',
+                'ufia_facility_count_total_established': '',
+                'ufia_facility_admin_count_total_established': '',
+                'ufia_facility_share_total_latest': '',
+                'ufia_facility_count_total_latest': '',
+                'ufia_facility_admin_count_total_latest': '',
+                'ufia_facility_admin_count_total': '',
+                'ufia_facility_count_total': '',
+                'ufia_facility_share_total': '',
+                'ufia_facility_share_delta_total': '',
+                'ufia_facility_admin_count_admin_culture': '',
+                'ufia_facility_count_admin_culture': '',
+                'ufia_facility_share_admin_culture': '',
+                'ufia_facility_share_delta_admin_culture': '',
+                'ufia_facility_admin_count_education_childcare': '',
+                'ufia_facility_count_education_childcare': '',
+                'ufia_facility_share_education_childcare': '',
+                'ufia_facility_share_delta_education_childcare': '',
+                'ufia_facility_admin_count_care_medical': '',
+                'ufia_facility_count_care_medical': '',
+                'ufia_facility_share_care_medical': '',
+                'ufia_facility_share_delta_care_medical': '',
+                'ufia_facility_admin_count_commercial': '',
+                'ufia_facility_count_commercial': '',
+                'ufia_facility_share_commercial': '',
+                'ufia_facility_share_delta_commercial': '',
+                'rpa_facility_admin_count_total': '',
+                'rpa_facility_count_total': '',
+                'rpa_facility_share_total': '',
+                'rpa_facility_share_delta_total': '',
+                'rpa_facility_admin_count_admin_culture': '',
+                'rpa_facility_count_admin_culture': '',
+                'rpa_facility_share_admin_culture': '',
+                'rpa_facility_share_delta_admin_culture': '',
+                'rpa_facility_admin_count_education_childcare': '',
+                'rpa_facility_count_education_childcare': '',
+                'rpa_facility_share_education_childcare': '',
+                'rpa_facility_share_delta_education_childcare': '',
+                'rpa_facility_admin_count_care_medical': '',
+                'rpa_facility_count_care_medical': '',
+                'rpa_facility_share_care_medical': '',
+                'rpa_facility_share_delta_care_medical': '',
+                'rpa_facility_admin_count_commercial': '',
+                'rpa_facility_count_commercial': '',
+                'rpa_facility_share_commercial': '',
+                'rpa_facility_share_delta_commercial': '',
+                'rsma_facility_admin_count_total': '',
+                'rsma_facility_count_total': '',
+                'rsma_facility_share_total': '',
+                'rsma_facility_share_delta_total': '',
+                'rsma_facility_admin_count_admin_culture': '',
+                'rsma_facility_count_admin_culture': '',
+                'rsma_facility_share_admin_culture': '',
+                'rsma_facility_share_delta_admin_culture': '',
+                'rsma_facility_admin_count_education_childcare': '',
+                'rsma_facility_count_education_childcare': '',
+                'rsma_facility_share_education_childcare': '',
+                'rsma_facility_share_delta_education_childcare': '',
+                'rsma_facility_admin_count_care_medical': '',
+                'rsma_facility_count_care_medical': '',
+                'rsma_facility_share_care_medical': '',
+                'rsma_facility_share_delta_care_medical': '',
+                'rsma_facility_admin_count_commercial': '',
+                'rsma_facility_count_commercial': '',
+                'rsma_facility_share_commercial': '',
+                'rsma_facility_share_delta_commercial': '',
+                'sheet_a_rpa_facility_share_total': '',
+                'sheet_a_rpa_facility_share_admin_culture': '',
+                'sheet_a_rpa_facility_share_education_childcare': '',
+                'sheet_a_rpa_facility_share_care_medical': '',
+                'sheet_a_rpa_facility_share_commercial': '',
+            }]
+        self.export(
+            self.base_path
+            + f'\\IF102_都市機能誘導区域関連評価指標ファイル{self.file_suffix}.csv',
+            data_list,
+        )
 
     def export(self, file_path, data):
         """エクスポート処理"""
@@ -744,7 +842,9 @@ class UrbanFunctionInductionMetricCalculator:
                 writer.writeheader()
 
                 for row in data:
-                    writer.writerow(row)
+                    # 全値が空文字の行（ヘッダー定義用）はスキップ
+                    if any(v != '' for v in row.values()):
+                        writer.writerow(row)
 
             msg = self.tr(
                 "File export completed: %1."

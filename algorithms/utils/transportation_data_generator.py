@@ -154,6 +154,9 @@ class TransportationDataGenerator:
             processing.run("native:createspatialindex",
                            {'INPUT': merged_layer})
 
+            processing.run("native:createspatialindex",
+                           {'INPUT': target_zones_layer})
+
             # 選択された市区町村（is_target=1）の範囲と交差する道路のみを抽出
             extracted_layer = processing.run(
                 "native:extractbylocation",

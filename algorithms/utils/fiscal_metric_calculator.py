@@ -17,13 +17,14 @@ from .excel_reader import ExcelReader
 
 class FiscalMetricCalculator:
     """財政関連評価指標算出機能"""
-    def __init__(self, input_folder, output_folder, check_canceled_callback=None, gpkg_manager=None):
+    def __init__(self, input_folder, output_folder, check_canceled_callback=None, gpkg_manager=None, file_suffix=""):
         self.input_folder = input_folder  # Excel読み込み用
         self.output_folder = output_folder  # CSV出力用
 
         self.check_canceled = check_canceled_callback
 
         self.gpkg_manager = gpkg_manager
+        self.file_suffix = file_suffix
 
         # Excel読み込みヘルパー（メインスレッドで実行）
         self.excel_reader = ExcelReader()
@@ -227,12 +228,12 @@ class FiscalMetricCalculator:
 
             # ファイル分離してエクスポート
             self.export(
-                os.path.join(self.output_folder, 'IF106_財政関連評価指標_固定資産税ファイル.csv'),
+                os.path.join(self.output_folder, f'IF106_財政関連評価指標_固定資産税ファイル{self.file_suffix}.csv'),
                 fixed_asset_data_list,
             )
 
             self.export(
-                os.path.join(self.output_folder, 'IF106_財政関連評価指標_歳出額ファイル.csv'),
+                os.path.join(self.output_folder, f'IF106_財政関連評価指標_歳出額ファイル{self.file_suffix}.csv'),
                 expenditure_data_list,
             )
 
@@ -743,12 +744,12 @@ class FiscalMetricCalculator:
 
         # 2つのファイルに分離してエクスポート
         self.export(
-            os.path.join(self.output_folder, 'IF106_財政関連評価指標_固定資産税ファイル.csv'),
+            os.path.join(self.output_folder, f'IF106_財政関連評価指標_固定資産税ファイル{self.file_suffix}.csv'),
             [empty_fixed_asset_data],
         )
 
         self.export(
-            os.path.join(self.output_folder, 'IF106_財政関連評価指標_歳出額ファイル.csv'),
+            os.path.join(self.output_folder, f'IF106_財政関連評価指標_歳出額ファイル{self.file_suffix}.csv'),
             empty_expenditure_data_list,
         )
 

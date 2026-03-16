@@ -22,12 +22,13 @@ from .gpkg_manager import GpkgManager
 
 class DisasterPreventionMetricCalculator:
     """防災関連評価指標算出機能"""
-    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None, file_suffix=""):
         self.base_path = base_path
 
         self.check_canceled = check_canceled_callback
 
         self.gpkg_manager = gpkg_manager
+        self.file_suffix = file_suffix
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -90,11 +91,7 @@ class DisasterPreventionMetricCalculator:
 
             # target_zones_layerがない場合は集計を行わない
             if not target_zones_layer:
-                # 空の結果を返す
-                self.export(
-                    self.base_path + '\\IF103_防災関連評価指標ファイル.csv',
-                    []
-                )
+                self.__export_data([])
                 return
 
             # 建物の重心を計算
@@ -107,6 +104,14 @@ class DisasterPreventionMetricCalculator:
                 }
             )
             centroids_all = centroids_result['OUTPUT']
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': centroids_all}
+            )
+            processing.run(
+                "native:createspatialindex", {'INPUT': target_zones_layer}
+            )
 
             # target_zones内の重心のみを抽出
             if target_zones_layer and target_zones_layer.featureCount() > 0:
@@ -145,6 +150,10 @@ class DisasterPreventionMetricCalculator:
             # L1ハザードエリア（計画規模）の集計対象の行政区域でフィルタ抽出
             hazard_area_l1_constrained = None
             if hazard_area_l1_layer:
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': hazard_area_l1_layer}
+                )
                 l1_constrained_result = processing.run(
                     "native:extractbylocation",
                     {
@@ -159,6 +168,10 @@ class DisasterPreventionMetricCalculator:
             # L2ハザードエリア（想定最大規模）の集計対象の行政区域でフィルタ抽出
             hazard_area_l2_constrained = None
             if hazard_area_l2_layer:
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': hazard_area_l2_layer}
+                )
                 l2_constrained_result = processing.run(
                     "native:extractbylocation",
                     {
@@ -173,6 +186,10 @@ class DisasterPreventionMetricCalculator:
             # 津波ハザードエリアの集計対象の行政区域でフィルタ抽出
             hazard_area_tsunami_constrained = None
             if hazard_area_tsunamis_layer:
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': hazard_area_tsunamis_layer}
+                )
                 tsunami_constrained_result = processing.run(
                     "native:extractbylocation",
                     {
@@ -212,6 +229,10 @@ class DisasterPreventionMetricCalculator:
             # L1範囲の建物を取得（全レベル）
             l1_buildings = None
             if hazard_area_l1_constrained:
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': hazard_area_l1_constrained}
+                )
                 l1_buildings_result = processing.run(
                     "native:joinattributesbylocation",
                     {
@@ -233,6 +254,10 @@ class DisasterPreventionMetricCalculator:
             # L2範囲の建物を取得（全レベル）
             l2_buildings = None
             if hazard_area_l2_constrained:
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': hazard_area_l2_constrained}
+                )
                 l2_buildings_result = processing.run(
                     "native:joinattributesbylocation",
                     {
@@ -254,6 +279,10 @@ class DisasterPreventionMetricCalculator:
             # 津波範囲の建物を取得（全レベル）
             tsunami_buildings = None
             if hazard_area_tsunami_constrained:
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': hazard_area_tsunami_constrained}
+                )
                 tsunami_buildings_result = processing.run(
                     "native:joinattributesbylocation",
                     {
@@ -474,11 +503,8 @@ class DisasterPreventionMetricCalculator:
                 # 辞書をリストに追加
                 data_list.append(year_data)
 
-            # ファイルパスを指定してエクスポート
-            self.export(
-                self.base_path + '\\IF103_防災関連評価指標ファイル.csv',
-                data_list,
-            )
+            # エクスポート（空の場合はヘッダーだけのCSVを出力）
+            self.__export_data(data_list)
 
             return
 
@@ -490,6 +516,37 @@ class DisasterPreventionMetricCalculator:
                 Qgis.Critical,
             )
             raise e
+
+    def __export_data(self, data_list):
+        """データをCSVにエクスポート（空の場合はヘッダーだけのCSVを出力）"""
+        if not data_list:
+            data_list = [{
+                'year': '',
+                'flood_plan_0p5m_inundation_pop_share': '',
+                'flood_plan_0p5m_inundation_pop_share_delta': '',
+                'flood_plan_0p5m_inundation_national_avg': '',
+                'flood_plan_0p5m_inundation_pref_avg': '',
+                'flood_plan_3m_inundation_pop_share': '',
+                'flood_plan_3m_inundation_pop_share_delta': '',
+                'flood_plan_3m_inundation_national_avg': '',
+                'flood_plan_3m_inundation_pref_avg': '',
+                'flood_assumed_0p5m_inundation_pop_share': '',
+                'flood_assumed_0p5m_inundation_pop_share_delta': '',
+                'flood_assumed_0p5m_inundation_national_avg': '',
+                'flood_assumed_0p5m_inundation_pref_avg': '',
+                'flood_assumed_3m_inundation_pop_share': '',
+                'flood_assumed_3m_inundation_pop_share_delta': '',
+                'flood_assumed_3m_inundation_national_avg': '',
+                'flood_assumed_3m_inundation_pref_avg': '',
+                'tsunami_2m_inundation_pop_share': '',
+                'tsunami_2m_inundation_pop_share_delta': '',
+                'tsunami_2m_inundation_national_avg': '',
+                'tsunami_2m_inundation_pref_avg': '',
+            }]
+        self.export(
+            self.base_path + f'\\IF103_防災関連評価指標ファイル{self.file_suffix}.csv',
+            data_list,
+        )
 
     def export(self, file_path, data):
         """エクスポート処理"""
@@ -508,7 +565,9 @@ class DisasterPreventionMetricCalculator:
                 writer.writeheader()
 
                 for row in data:
-                    writer.writerow(row)
+                    # 全値が空文字の行（ヘッダー定義用）はスキップ
+                    if any(v != '' for v in row.values()):
+                        writer.writerow(row)
 
             msg = self.tr(
                 "File export completed: %1."

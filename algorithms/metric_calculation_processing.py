@@ -159,6 +159,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             is_after_change = self.parameterAsBool(parameters, self.IS_AFTER_CHANGE, context)
             induction_area_folder = self.parameterAsString(parameters, self.INDUCTION_AREA_FOLDER, context)
             before_output_folder = self.parameterAsString(parameters, self.BEFORE_OUTPUT_FOLDER, context)
+            file_suffix = "_after" if is_after_change else ""
 
             # 変更後実行時の前提条件チェック
             if is_after_change:
@@ -198,7 +199,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
                     self.tr("Plugin"),
                     Qgis.Info,
                 )
-                csv_check_result = self.check_existing_csv_files(output_folder)
+                csv_check_result = self.check_existing_csv_files(output_folder, file_suffix)
                 QgsMessageLog.logMessage(
                     f"CSVチェック結果: {csv_check_result}",
                     self.tr("Plugin"),
@@ -373,7 +374,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("居住誘導関連評価指標を算出中...")
                 calculator = ResidentialInductionMetricCalculator(
-                    output_folder, lambda: feedback.isCanceled(), gpkg_manager
+                    output_folder, lambda: feedback.isCanceled(), gpkg_manager, file_suffix=file_suffix
                 )
                 calculator.calc()
             feedback.setProgress(55)
@@ -383,7 +384,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("都市機能誘導関連評価指標を算出中...")
                 calculator = UrbanFunctionInductionMetricCalculator(
-                    output_folder, lambda: feedback.isCanceled(), gpkg_manager
+                    output_folder, lambda: feedback.isCanceled(), gpkg_manager, file_suffix=file_suffix
                 )
                 calculator.calc()
             feedback.setProgress(65)
@@ -393,7 +394,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("防災関連評価指標を算出中...")
                 calculator = DisasterPreventionMetricCalculator(
-                    output_folder, lambda: feedback.isCanceled(), gpkg_manager
+                    output_folder, lambda: feedback.isCanceled(), gpkg_manager, file_suffix=file_suffix
                 )
                 calculator.calc()
             feedback.setProgress(75)
@@ -403,7 +404,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("公共交通関連評価指標を算出中...")
                 calculator = PublicTransportMetricCalculator(
-                    output_folder, lambda: feedback.isCanceled(), gpkg_manager
+                    output_folder, lambda: feedback.isCanceled(), gpkg_manager, file_suffix=file_suffix
                 )
                 calculator.calc()
             feedback.setProgress(85)
@@ -413,7 +414,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("土地利用関連評価指標を算出中...")
                 calculator = LandUseMetricCalculator(
-                    output_folder, lambda: feedback.isCanceled(), gpkg_manager
+                    output_folder, lambda: feedback.isCanceled(), gpkg_manager, file_suffix=file_suffix
                 )
                 calculator.calc()
             feedback.setProgress(95)
@@ -423,7 +424,7 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             if not feedback.isCanceled() and not skip_metric_calculation:
                 feedback.pushInfo("財政関連評価指標を算出中...")
                 calculator = FiscalMetricCalculator(
-                    input_folder, output_folder, lambda: feedback.isCanceled(), gpkg_manager
+                    input_folder, output_folder, lambda: feedback.isCanceled(), gpkg_manager, file_suffix=file_suffix
                 )
                 calculator.calc()
             feedback.setProgress(100)
@@ -457,22 +458,23 @@ class MetricCalculationProcessing(QgsProcessingAlgorithm):
             feedback.reportError(f"エラーが発生しました: {error_str}")
             raise QgsProcessingException(error_str)
 
-    def check_existing_csv_files(self, output_folder):
+    def check_existing_csv_files(self, output_folder, file_suffix=""):
         """
         変更後のアウトプットフォルダにIF101~IF107のCSVファイルが存在するかチェック
 
         :param output_folder: 出力フォルダパス
+        :param file_suffix: ファイル名サフィックス（変更後の場合は"_after"）
         :return: 全て存在するかどうか
         """
         csv_files = [
-            'IF101_居住誘導区域関連評価指標ファイル.csv',
-            'IF102_都市機能誘導区域関連評価指標ファイル.csv',
-            'IF103_防災関連評価指標ファイル.csv',
-            'IF104_公共交通関連評価指標ファイル.csv',
-            'IF105_土地利用関連評価指標ファイル.csv',
-            'IF106_財政関連評価指標_固定資産税ファイル.csv',
-            'IF106_財政関連評価指標_歳出額ファイル.csv',
-            'IF107_将来人口と目標人口の関係性ファイル.csv',
+            f'IF101_居住誘導区域関連評価指標ファイル{file_suffix}.csv',
+            f'IF102_都市機能誘導区域関連評価指標ファイル{file_suffix}.csv',
+            f'IF103_防災関連評価指標ファイル{file_suffix}.csv',
+            f'IF104_公共交通関連評価指標ファイル{file_suffix}.csv',
+            f'IF105_土地利用関連評価指標ファイル{file_suffix}.csv',
+            f'IF106_財政関連評価指標_固定資産税ファイル{file_suffix}.csv',
+            f'IF106_財政関連評価指標_歳出額ファイル{file_suffix}.csv',
+            f'IF107_将来人口と目標人口の関係性ファイル{file_suffix}.csv',
         ]
 
         for filename in csv_files:

@@ -22,12 +22,13 @@ from .gpkg_manager import GpkgManager
 
 class PublicTransportMetricCalculator:
     """公共交通関連評価指標算出"""
-    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None, file_suffix=""):
         self.base_path = base_path
 
         self.check_canceled = check_canceled_callback
 
         self.gpkg_manager = gpkg_manager
+        self.file_suffix = file_suffix
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -94,11 +95,7 @@ class PublicTransportMetricCalculator:
 
             # target_zones_layerがない場合は集計を行わない
             if not target_zones_layer:
-                # 空の結果を返す
-                self.export(
-                    self.base_path + '\\IF105_公共交通関連評価指標ファイル.csv',
-                    []
-                )
+                self.__export_data([])
                 return
 
             # 建物の重心を計算
@@ -111,6 +108,14 @@ class PublicTransportMetricCalculator:
                 }
             )
             centroids_all = centroids_result['OUTPUT']
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': centroids_all}
+            )
+            processing.run(
+                "native:createspatialindex", {'INPUT': target_zones_layer}
+            )
 
             # target_zones内の重心のみを抽出
             if target_zones_layer and target_zones_layer.featureCount() > 0:
@@ -319,11 +324,8 @@ class PublicTransportMetricCalculator:
                 # 辞書をリストに追加
                 data_list.append(year_data)
 
-            # ファイルパスを指定してエクスポート
-            self.export(
-                self.base_path + '\\IF104_公共交通関連評価指標ファイル.csv',
-                data_list,
-            )
+            # エクスポート（空の場合はヘッダーだけのCSVを出力）
+            self.__export_data(data_list)
 
             return
 
@@ -335,6 +337,36 @@ class PublicTransportMetricCalculator:
                 Qgis.Critical,
             )
             raise e
+
+    def __export_data(self, data_list):
+        """データをCSVにエクスポート（空の場合はヘッダーだけのCSVを出力）"""
+        if not data_list:
+            data_list = [{
+                'year': '',
+                'transit_walk_pop_coverage': '',
+                'transit_walk_pop_coverage_delta': '',
+                'transit_walk_pop_coverage_national_avg': '',
+                'transit_walk_pop_coverage_pref_avg': '',
+                'rail_pop_covered': '',
+                'rail_pop_coverage': '',
+                'rail_pop_coverage_delta': '',
+                'rail_pop_coverage_national_avg': '',
+                'rail_pop_coverage_pref_avg': '',
+                'bus_pop_covered': '',
+                'bus_pop_coverage': '',
+                'bus_pop_coverage_delta': '',
+                'bus_pop_coverage_national_avg': '',
+                'bus_pop_coverage_pref_avg': '',
+                'transit_pop_covered': '',
+                'transit_pop_coverage': '',
+                'transit_pop_coverage_delta': '',
+                'transit_pop_coverage_national_avg': '',
+                'transit_pop_coverage_pref_avg': '',
+            }]
+        self.export(
+            self.base_path + f'\\IF104_公共交通関連評価指標ファイル{self.file_suffix}.csv',
+            data_list,
+        )
 
     def export(self, file_path, data):
         """エクスポート処理"""
@@ -353,7 +385,9 @@ class PublicTransportMetricCalculator:
                 writer.writeheader()
 
                 for row in data:
-                    writer.writerow(row)
+                    # 全値が空文字の行（ヘッダー定義用）はスキップ
+                    if any(v != '' for v in row.values()):
+                        writer.writerow(row)
 
             msg = self.tr(
                 "File export completed: %1."
@@ -386,7 +420,6 @@ class PublicTransportMetricCalculator:
     def __extract(self, target_layer, buffer_layer):
         """バッファレイヤ内に存在するフィーチャを抽出"""
         # 空間インデックスの作成
-        processing.run("native:createspatialindex", {'INPUT': target_layer})
         processing.run("native:createspatialindex", {'INPUT': buffer_layer})
 
         # バッファ内のフィーチャを抽出

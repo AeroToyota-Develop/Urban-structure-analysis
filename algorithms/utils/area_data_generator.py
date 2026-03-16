@@ -2143,6 +2143,11 @@ class AreaDataGenerator:
                 'zones', None, withload_project=False
             )
 
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': zones_layer}
+            )
+
             # ゾーンポリゴン範囲と交差するエリアのみを抽出
             extracted_layer = processing.run(
                 "native:extractbylocation",
@@ -2307,6 +2312,11 @@ class AreaDataGenerator:
             # ゾーンポリゴンを読み込む
             zones_layer = self.gpkg_manager.load_layer(
                 'zones', None, withload_project=False
+            )
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': zones_layer}
             )
 
             # ゾーンポリゴン範囲と交差するエリアのみを抽出
@@ -2489,6 +2499,11 @@ class AreaDataGenerator:
                 'zones', None, withload_project=False
             )
 
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': zones_layer}
+            )
+
             # ゾーンポリゴン範囲と交差するエリアのみを抽出
             extracted_layer = processing.run(
                 "native:extractbylocation",
@@ -2659,6 +2674,11 @@ class AreaDataGenerator:
             # ゾーンポリゴンを読み込む
             zones_layer = self.gpkg_manager.load_layer(
                 'zones', None, withload_project=False
+            )
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': zones_layer}
             )
 
             # ゾーンポリゴン範囲と交差するエリアのみを抽出
@@ -2851,6 +2871,11 @@ class AreaDataGenerator:
                 'zones', None, withload_project=False
             )
 
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': zones_layer}
+            )
+
             # ゾーンポリゴン範囲と交差するエリアのみを抽出
             extracted_layer = processing.run(
                 "native:extractbylocation",
@@ -3013,6 +3038,11 @@ class AreaDataGenerator:
             # ゾーンポリゴンを読み込む
             zones_layer = self.gpkg_manager.load_layer(
                 'zones', None, withload_project=False
+            )
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': zones_layer}
             )
 
             # ゾーンポリゴン範囲と交差するエリアのみを抽出

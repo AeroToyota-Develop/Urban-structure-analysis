@@ -130,6 +130,7 @@ class BuildingDataAssigner:
 
                 # メッシュ内の建物の居住部分の総床面積を計算
                 unknown_floor_area_buildings = []  # 床面積不明(-9999/空/NULL)の住宅系建物
+                unknown_usage_buildings = []       # usage=不明の建物
 
                 for building_feature in buildings_layer.getFeatures(request):
                     if self.check_canceled():
@@ -140,6 +141,9 @@ class BuildingDataAssigner:
                     building_centroid = building_geom.centroid()
                     if mesh_geom.contains(building_centroid):
                         usage = building_feature['usage']
+
+                        if usage == '不明':
+                            unknown_usage_buildings.append(building_feature)
 
                         if usage in [
                             '住宅',
@@ -226,6 +230,48 @@ class BuildingDataAssigner:
 
                     processed_count += num_buildings
                     continue  # 次のメッシュへ
+                elif unknown_usage_buildings:
+                    # 住宅系建物が1件もなく、usage=不明の建物がある場合、不明建物に均等に人口を付与
+                    num_buildings = len(unknown_usage_buildings)
+                    for building_feature in unknown_usage_buildings:
+                        building_population = {}
+
+                        for field in population_fields:
+                            field_id = buildings_layer.fields().indexFromName(field)
+                            if field_id == -1:
+                                continue
+
+                            mesh_field = field
+                            if re.match(r'^20\d{2}_population$', field):
+                                mesh_field = field.replace('_population', '_target_area_population')
+                            elif re.match(r'^future_20\d{2}_PT\w+$', field):
+                                mesh_field = re.sub(r'^(future_\d{4})_(\w+)$', r'\1_target_area_\2', field)
+
+                            value = mesh_feature[mesh_field]
+                            current_value = building_feature[field]
+                            if (
+                                isinstance(current_value, QVariant)
+                                and current_value.isNull()
+                            ):
+                                current_value = 0
+                            else:
+                                current_value = float(current_value or 0)
+
+                            value = float(value or 0)
+
+                            building_population[field_id] = (
+                                current_value + value / num_buildings
+                            )
+
+                        fid = building_feature.id()
+                        if fid not in attribute_updates:
+                            attribute_updates[fid] = {}
+                        attribute_updates[fid].update(building_population)
+
+                    processed_count += num_buildings
+                    continue  # 次のメッシュへ
+                else:
+                    pass
 
                 if total_living_area > 0:
                     if self.check_canceled():
@@ -407,6 +453,16 @@ class BuildingDataAssigner:
                         'OUTPUT': 'TEMPORARY_OUTPUT',
                     },
                 )['OUTPUT']
+
+                # 空間インデックス作成
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': buildings_layer}
+                )
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': filtered_vacancies}
+                )
 
                 # 建物レイヤに空き家フラグを空間結合で追加
                 join_field = f"{year}_is_vacancy"

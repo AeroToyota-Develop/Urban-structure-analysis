@@ -21,12 +21,13 @@ from .gpkg_manager import GpkgManager
 
 class LandUseMetricCalculator:
     """土地利用関連評価指標算"""
-    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None):
+    def __init__(self, base_path, check_canceled_callback=None, gpkg_manager=None, file_suffix=""):
         self.base_path = base_path
 
         self.check_canceled = check_canceled_callback
 
         self.gpkg_manager = gpkg_manager
+        self.file_suffix = file_suffix
 
     def tr(self, message):
         """翻訳用のメソッド"""
@@ -78,29 +79,7 @@ class LandUseMetricCalculator:
                     self.tr("Plugin"),
                     Qgis.Warning,
                 )
-                # 空のデータで出力
-                empty_data = [{
-                    'year': 1,
-                    'residential_land_mesh_count': '',
-                    'new_construction_index_outside_rpa': '',
-                    'new_construction_index_inside_rpa': '',
-                    'new_construction_index_cumulative_change_index': '',
-                    'new_construction_index_building_index_delta_gap_rpa_vs_outside': '',
-                    'new_construction_index_national_avg': '',
-                    'new_construction_index_pref_avg': '',
-                    'demolition_index_outside_rpa': '',
-                    'demolition_index_inside_rpa': '',
-                    'demolition_index_cumulative_change_index': '',
-                    'demolition_index_building_index_delta_gap_rpa_vs_outside': '',
-                    'other_construction_index_outside_rpa': '',
-                    'other_construction_index_inside_rpa': '',
-                    'other_construction_index_cumulative_change_index': '',
-                    'other_construction_index_building_index_delta_gap_rpa_vs_outside': '',
-                }]
-                self.export(
-                    self.base_path + '\\IF105_土地利用関連評価指標ファイル.csv',
-                    empty_data
-                )
+                self.__export_data([])
                 return
 
             # is_target=1のzonesを抽出
@@ -119,11 +98,7 @@ class LandUseMetricCalculator:
 
             # target_zones_layerがない場合は集計を行わない
             if not target_zones_layer:
-                # 空の結果を返す
-                self.export(
-                    self.base_path + '\\IF105_土地利用関連評価指標ファイル.csv',
-                    []
-                )
+                self.__export_data([])
                 return
 
             # データリストを作成
@@ -182,6 +157,15 @@ class LandUseMetricCalculator:
 
             # 新築指数、滅失指数、その他指数を計算
             # 居住誘導区域内外でのそれぞれの指数を算出
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': filtered_change_maps}
+            )
+            if residential_area_layer and residential_area_layer.featureCount() > 0:
+                processing.run(
+                    "native:createspatialindex", {'INPUT': residential_area_layer}
+                )
 
             # 居住誘導区域内の変化度データを取得
             inside_rpa_change_maps = self.__extract_within_induction_areas(
@@ -261,11 +245,8 @@ class LandUseMetricCalculator:
             # 辞書をリストに追加
             data_list.append(year_data)
 
-            # ファイルパスを指定してエクスポート
-            self.export(
-                self.base_path + '\\IF105_土地利用関連評価指標ファイル.csv',
-                data_list,
-            )
+            # エクスポート（空の場合はヘッダーだけのCSVを出力）
+            self.__export_data(data_list)
 
             return
 
@@ -277,6 +258,32 @@ class LandUseMetricCalculator:
                 Qgis.Critical,
             )
             raise e
+
+    def __export_data(self, data_list):
+        """データをCSVにエクスポート（空の場合はヘッダーだけのCSVを出力）"""
+        if not data_list:
+            data_list = [{
+                'year': '',
+                'residential_land_mesh_count': '',
+                'new_construction_index_outside_rpa': '',
+                'new_construction_index_inside_rpa': '',
+                'new_construction_index_cumulative_change_index': '',
+                'new_construction_index_building_index_delta_gap_rpa_vs_outside': '',
+                'new_construction_index_national_avg': '',
+                'new_construction_index_pref_avg': '',
+                'demolition_index_outside_rpa': '',
+                'demolition_index_inside_rpa': '',
+                'demolition_index_cumulative_change_index': '',
+                'demolition_index_building_index_delta_gap_rpa_vs_outside': '',
+                'other_construction_index_outside_rpa': '',
+                'other_construction_index_inside_rpa': '',
+                'other_construction_index_cumulative_change_index': '',
+                'other_construction_index_building_index_delta_gap_rpa_vs_outside': '',
+            }]
+        self.export(
+            self.base_path + f'\\IF105_土地利用関連評価指標ファイル{self.file_suffix}.csv',
+            data_list,
+        )
 
     def export(self, file_path, data):
         """エクスポート処理"""
@@ -295,7 +302,9 @@ class LandUseMetricCalculator:
                 writer.writeheader()
 
                 for row in data:
-                    writer.writerow(row)
+                    # 全値が空文字の行（ヘッダー定義用）はスキップ
+                    if any(v != '' for v in row.values()):
+                        writer.writerow(row)
 
             msg = self.tr(
                 "File export completed: %1."
@@ -327,6 +336,12 @@ class LandUseMetricCalculator:
 
     def __extract_within_zones(self, target_layer, zones_layer):
         """行政区域内のフィーチャを抽出"""
+        processing.run(
+            "native:createspatialindex", {'INPUT': target_layer}
+        )
+        processing.run(
+            "native:createspatialindex", {'INPUT': zones_layer}
+        )
         result = processing.run(
             "native:extractbylocation",
             {
@@ -350,6 +365,14 @@ class LandUseMetricCalculator:
             },
         )['OUTPUT']
 
+        # 空間インデックス作成
+        processing.run(
+            "native:createspatialindex", {'INPUT': change_maps_layer}
+        )
+        processing.run(
+            "native:createspatialindex", {'INPUT': industrial_zones}
+        )
+
         # 工業専用地域と重ならないchange_mapsを抽出
         result = processing.run(
             "native:extractbylocation",
@@ -370,6 +393,15 @@ class LandUseMetricCalculator:
 
             # 都市計画区域がある場合はその範囲内、ない場合は全てのメッシュを対象とする
             if urban_plannings_layer:
+                # 空間インデックス作成
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': land_use_meshes_layer}
+                )
+                processing.run(
+                    "native:createspatialindex",
+                    {'INPUT': urban_plannings_layer}
+                )
                 # 都市計画区域内のメッシュを抽出
                 urban_meshes = processing.run(
                     "native:extractbylocation",
@@ -382,6 +414,11 @@ class LandUseMetricCalculator:
                 )['OUTPUT']
             else:
                 urban_meshes = land_use_meshes_layer
+
+            # 空間インデックス作成
+            processing.run(
+                "native:createspatialindex", {'INPUT': urban_meshes}
+            )
 
             # 行政区域制約を適用
             admin_constrained_meshes = processing.run(
