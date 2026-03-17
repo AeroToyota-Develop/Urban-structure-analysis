@@ -18,7 +18,7 @@
 ## 2. 「都市構造評価ツール」について
 「都市構造評価ツール」では、立地適正化計画の策定または改定を行うにあたり、都市構造の現状把握や課題分析、施策検討等を支援し、コンパクト・プラス・ネットワークの推進を図ることを目指しています。
 本ツールでは、都市構造に関連する各種オープンデータや3D都市モデルを活用し、都市構造に係る多数の評価指標を一括算出する機能、算出された評価指標や関連データをグラフやマップで可視化する機能、および算出された評価指標を二次利用しやすいCSV形式で出力する機能を実装しています。本ツールはオープンソースのGISソフトであるQGISを使用します。\
-本システムの詳細については[技術検証レポート(※最新化予定)](https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0133_ver01.pdf)を参照してください。
+本システムの詳細については[技術検証レポート](https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0140_ver01.pdf)を参照してください。
 
 ## 3. 利用手順
 本システムの構築手順及び利用手順については[利用チュートリアル](https://project-plateau.github.io/Urban-structure-analysis/)を参照してください。
@@ -87,5 +87,5 @@
 - 本リポジトリの利用により生じた損失及び損害等について、国土交通省はいかなる責任も負わないものとします。
 
 ## 10. 参考資料 <!-- 技術検証レポートのURLはアクセンチュアにて記載します。 -->
-- 技術検証レポート: [https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0133_ver01.pdf](https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0133_ver01.pdf)
+- 技術検証レポート: [https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0140_ver01.pdf](https://www.mlit.go.jp/plateau/file/libraries/doc/plateau_tech_doc_0140_ver01.pdf)
 - PLATEAU WebサイトのUse caseページ「都市構造評価ツール」: https://www.mlit.go.jp/plateau/use-case/uc25-09/
